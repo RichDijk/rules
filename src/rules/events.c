@@ -5,6 +5,7 @@
 #include "rules.h"
 #include "net.h"
 #include "json.h"
+#include "regex.h"
 
 #define MAX_EVENT_PROPERTIES 64
 #define MAX_RESULT_NODES 32
@@ -19,20 +20,31 @@
 #define OP_BOOL_INT 0x0402
 #define OP_BOOL_DOUBLE 0x0403
 #define OP_BOOL_STRING 0x0401
+#define OP_BOOL_NIL 0x0407
 #define OP_INT_BOOL 0x0204
 #define OP_INT_INT 0x0202
 #define OP_INT_DOUBLE 0x0203
 #define OP_INT_STRING 0x0201
+#define OP_INT_NIL 0x0207
 #define OP_DOUBLE_BOOL 0x0304
 #define OP_DOUBLE_INT 0x0302
 #define OP_DOUBLE_DOUBLE 0x0303
 #define OP_DOUBLE_STRING 0x0301
+#define OP_DOUBLE_NIL 0x0307
 #define OP_STRING_BOOL 0x0104
 #define OP_STRING_INT 0x0102
 #define OP_STRING_DOUBLE 0x0103
 #define OP_STRING_STRING 0x0101
+#define OP_STRING_NIL 0x0107
+#define OP_STRING_REGEX 0x010C
+#define OP_NIL_BOOL 0x0704
+#define OP_NIL_INT 0x0702
+#define OP_NIL_DOUBLE 0x0703
+#define OP_NIL_STRING 0x0701
+#define OP_NIL_NIL 0x0707
 
 typedef struct actionContext {
+    unsigned long stateVersion;
     void *rulesBinding;
     redisReply *reply;
 } actionContext;
@@ -864,6 +876,34 @@ static unsigned int isMatch(ruleset *tree,
                                                             rightProperty->valueLength,
                                                             alphaOp);
             break;
+        case OP_BOOL_NIL:
+        case OP_INT_NIL:
+        case OP_DOUBLE_NIL:
+        case OP_STRING_NIL:
+            if (alphaOp == OP_NEQ) {
+                *propertyMatch = 1;
+            } else {
+                *propertyMatch = 0;
+            }
+
+            break;
+        case OP_NIL_NIL:
+            if (alphaOp == OP_EQ) {
+                *propertyMatch = 1;
+            } else {
+                *propertyMatch = 0;
+            }
+
+            break;
+        case OP_STRING_REGEX:
+            *propertyMatch = evaluateRegex(tree,
+                                           message + currentProperty->valueOffset, 
+                                           currentProperty->valueLength, 
+                                           currentAlpha->right.value.regex.vocabularyLength,
+                                           currentAlpha->right.value.regex.statesLength,
+                                           currentAlpha->right.value.regex.stateMachineOffset);
+            break;
+
     }
     
     if (releaseRightState) {
@@ -1029,6 +1069,7 @@ static unsigned int handleMessageCore(ruleset *tree,
     jsonProperty *sidProperty;
     int sidLength;
     char *storeCommand;
+    char *versionCommand;
     int result = getId(properties, sidIndex, &sidProperty, &sidLength);
     if (result != RULES_OK) {
         return result;
@@ -1064,16 +1105,19 @@ static unsigned int handleMessageCore(ruleset *tree,
             }
         }
 
-        if (*commandCount == MAX_COMMAND_COUNT) {
-            return ERR_MAX_COMMAND_COUNT;
-        }
-
-        result = formatStoreSession(*rulesBinding, sid, state, 0, &storeCommand);
+        result = formatStoreSession(*rulesBinding, sid, state, 0, &storeCommand, &versionCommand);
         if (result != RULES_OK) {
             return result;
         }
 
         commands[*commandCount] = storeCommand;
+        ++*commandCount;
+
+        if (*commandCount == MAX_COMMAND_COUNT) {
+            return ERR_MAX_COMMAND_COUNT;
+        }
+
+        commands[*commandCount] = versionCommand;
         ++*commandCount;
     }
     char *removeCommand = NULL;
@@ -1220,12 +1264,19 @@ static unsigned int handleMessageCore(ruleset *tree,
                 return ERR_MAX_COMMAND_COUNT;
             }
 
-            result = formatStoreSession(*rulesBinding, sid, newState, 1, &storeCommand);
+            result = formatStoreSession(*rulesBinding, sid, newState, 1, &storeCommand, &versionCommand);
             if (result != RULES_OK) {
                 return result;
             }
 
             commands[*commandCount] = storeCommand;
+            ++*commandCount;
+
+            if (*commandCount == MAX_COMMAND_COUNT) {
+                return ERR_MAX_COMMAND_COUNT;
+            }
+
+            commands[*commandCount] = versionCommand;
             ++*commandCount;
 
             result = handleMessage(tree, 
@@ -1262,8 +1313,9 @@ static unsigned int handleMessage(ruleset *tree,
     unsigned int midIndex = UNDEFINED_INDEX;
     unsigned int sidIndex = UNDEFINED_INDEX;
     jsonProperty properties[MAX_EVENT_PROPERTIES];
-    int result = constructObject(NULL, 
-                                 message, 
+    int result = constructObject(message,
+                                 NULL, 
+                                 NULL, 
                                  0, 
                                  MAX_EVENT_PROPERTIES,
                                  properties, 
@@ -1274,7 +1326,7 @@ static unsigned int handleMessage(ruleset *tree,
     if (result != RULES_OK) {
         return result;
     }
-
+    
     return handleMessageCore(tree,
                             state, 
                             message, 
@@ -1293,18 +1345,9 @@ static unsigned int handleMessages(void *handle,
                                    char *messages, 
                                    char **commands,
                                    unsigned int *commandCount,
-                                   unsigned int *resultsLength,  
-                                   unsigned int **results,
                                    void **rulesBinding) {
-    unsigned int messagesLength = 64;
-    unsigned int *resultsArray = malloc(sizeof(unsigned int) * messagesLength);
-    if (!resultsArray) {
-        return ERR_OUT_OF_MEMORY;
-    }
-
-    *results = resultsArray;
-    *resultsLength = 0;
     unsigned int result;
+    unsigned int returnResult = RULES_OK;
     jsonProperty properties[MAX_EVENT_PROPERTIES];
     unsigned int propertiesLength = 0;
     unsigned int propertiesMidIndex = UNDEFINED_INDEX;
@@ -1318,8 +1361,9 @@ static unsigned int handleMessages(void *handle,
         ++first;
     }
 
-    while (constructObject(NULL, 
-                           first, 
+    while (constructObject(first,
+                           NULL, 
+                           NULL, 
                            0,
                            MAX_EVENT_PROPERTIES,
                            properties, 
@@ -1348,21 +1392,13 @@ static unsigned int handleMessages(void *handle,
         
         *last = lastTemp;
         if (result != RULES_OK && result != ERR_EVENT_NOT_HANDLED) {
-            free(resultsArray);
             return result;
         }
 
-        if (*resultsLength >= messagesLength) {
-            messagesLength = messagesLength * 2;
-            resultsArray = realloc(resultsArray, sizeof(unsigned int) * messagesLength);
-            if (!resultsArray) {
-                return ERR_OUT_OF_MEMORY;
-            }
-            *results = resultsArray;
+        if (result == ERR_EVENT_NOT_HANDLED) {
+            returnResult = ERR_EVENT_NOT_HANDLED;
         }
 
-        resultsArray[*resultsLength] = result;
-        ++*resultsLength;
         propertiesLength = 0;
         propertiesMidIndex = UNDEFINED_INDEX;
         propertiesSidIndex = UNDEFINED_INDEX;        
@@ -1373,11 +1409,12 @@ static unsigned int handleMessages(void *handle,
         }
     }
 
-    return RULES_OK;
+    return returnResult;
 }
 
 static unsigned int handleState(ruleset *tree, 
-                                char *state, 
+                                char *state,
+                                unsigned long stateVersion, 
                                 char **commands,
                                 unsigned int *commandCount,
                                 void **rulesBinding) {
@@ -1392,15 +1429,15 @@ static unsigned int handleState(ruleset *tree,
 
     char *stateMessagePostfix = state + 1;
 #ifdef _WIN32
-	char *stateMessage = (char *)_alloca(sizeof(char)*(30 + stateLength - 1));
+	char *stateMessage = (char *)_alloca(sizeof(char)*(40 + stateLength - 1));
 #else
-	char stateMessage[30 + stateLength - 1];
+	char stateMessage[40 + stateLength - 1];
 #endif
-    int randomMid = rand();
+    
 #ifdef _WIN32
-    sprintf_s(stateMessage, 30 + stateLength - 1, "{\"id\":%d, \"$s\":1, %s", randomMid, stateMessagePostfix);
+    sprintf_s(stateMessage, 40 + stateLength - 1, "{\"id\":\"$v-%016lu\", \"$s\":1, %s", stateVersion, stateMessagePostfix);
 #else
-	snprintf(stateMessage, 30 + stateLength - 1, "{\"id\":%d, \"$s\":1, %s", randomMid, stateMessagePostfix);
+	snprintf(stateMessage, 40 + stateLength - 1, "{\"id\":\"$v-%016lu\", \"$s\":1, %s", stateVersion, stateMessagePostfix);
 #endif
     unsigned int result = handleMessage(tree, 
                                         state,
@@ -1523,8 +1560,6 @@ static unsigned int executeHandleMessage(void *handle,
 static unsigned int startHandleMessages(void *handle, 
                                         char *messages, 
                                         unsigned char actionType,
-                                        unsigned int *resultsLength, 
-                                        unsigned int **results,
                                         void **rulesBinding,
                                         unsigned int *replyCount) {
     char *commands[MAX_COMMAND_COUNT];
@@ -1534,8 +1569,6 @@ static unsigned int startHandleMessages(void *handle,
                                          messages,
                                          commands,
                                          &commandCount,
-                                         resultsLength,
-                                         results,
                                          rulesBinding);
     if (result != RULES_OK && result != ERR_EVENT_NOT_HANDLED) {
         freeCommands(commands, commandCount);
@@ -1552,9 +1585,7 @@ static unsigned int startHandleMessages(void *handle,
 
 static unsigned int executeHandleMessages(void *handle, 
                                           char *messages, 
-                                          unsigned char actionType,
-                                          unsigned int *resultsLength, 
-                                          unsigned int **results) {
+                                          unsigned char actionType) {
     char *commands[MAX_COMMAND_COUNT];
     unsigned int commandCount = 0;
     void *rulesBinding = NULL;
@@ -1563,8 +1594,6 @@ static unsigned int executeHandleMessages(void *handle,
                                          messages,
                                          commands,
                                          &commandCount,
-                                         resultsLength,
-                                         results,
                                          &rulesBinding);
     if (result != RULES_OK && result != ERR_EVENT_NOT_HANDLED) {
         freeCommands(commands, commandCount);
@@ -1580,7 +1609,12 @@ static unsigned int executeHandleMessages(void *handle,
 }
 
 unsigned int complete(void *rulesBinding, unsigned int replyCount) {
-    return completeNonBlockingBatch(rulesBinding, replyCount);
+    unsigned int result = completeNonBlockingBatch(rulesBinding, replyCount);
+    if (result != RULES_OK && result != ERR_EVENT_OBSERVED) {
+        return result;
+    }
+
+    return RULES_OK;
 }
 
 unsigned int assertEvent(void *handle, char *message) {
@@ -1595,19 +1629,15 @@ unsigned int startAssertEvent(void *handle,
 }
 
 unsigned int assertEvents(void *handle, 
-                          char *messages, 
-                          unsigned int *resultsLength, 
-                          unsigned int **results) {
-    return executeHandleMessages(handle, messages, ACTION_ASSERT_EVENT, resultsLength, results);
+                          char *messages) {
+    return executeHandleMessages(handle, messages, ACTION_ASSERT_EVENT);
 }
 
 unsigned int startAssertEvents(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                               void **rulesBinding, 
                               unsigned int *replyCount) {
-    return startHandleMessages(handle, messages, ACTION_ASSERT_EVENT, resultsLength, results, rulesBinding, replyCount);
+    return startHandleMessages(handle, messages, ACTION_ASSERT_EVENT, rulesBinding, replyCount);
 }
 
 unsigned int retractEvent(void *handle, char *message) {
@@ -1627,18 +1657,14 @@ unsigned int assertFact(void *handle, char *message) {
 
 unsigned int startAssertFacts(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                              void **rulesBinding, 
                              unsigned int *replyCount) {
-    return startHandleMessages(handle, messages, ACTION_ASSERT_FACT, resultsLength, results, rulesBinding, replyCount);
+    return startHandleMessages(handle, messages, ACTION_ASSERT_FACT, rulesBinding, replyCount);
 }
 
 unsigned int assertFacts(void *handle, 
-                          char *messages, 
-                          unsigned int *resultsLength, 
-                          unsigned int **results) {
-    return executeHandleMessages(handle, messages, ACTION_ASSERT_FACT, resultsLength, results);
+                          char *messages) {
+    return executeHandleMessages(handle, messages, ACTION_ASSERT_FACT);
 }
 
 unsigned int retractFact(void *handle, char *message) {
@@ -1653,30 +1679,33 @@ unsigned int startRetractFact(void *handle,
 }
 
 unsigned int retractFacts(void *handle, 
-                          char *messages, 
-                          unsigned int *resultsLength, 
-                          unsigned int **results) {
-    return executeHandleMessages(handle, messages, ACTION_REMOVE_FACT, resultsLength, results);
+                          char *messages) {
+    return executeHandleMessages(handle, messages, ACTION_REMOVE_FACT);
 }
 
 unsigned int startRetractFacts(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                               void **rulesBinding, 
                               unsigned int *replyCount) {
-    return startHandleMessages(handle, messages, ACTION_REMOVE_FACT, resultsLength, results, rulesBinding, replyCount);
+    return startHandleMessages(handle, messages, ACTION_REMOVE_FACT, rulesBinding, replyCount);
 }
 
-unsigned int assertState(void *handle, char *state) {
+unsigned int assertState(void *handle, char *sid, char *state) {
     char *commands[MAX_COMMAND_COUNT];
     unsigned int commandCount = 0;
     void *rulesBinding = NULL;
-    unsigned int result = handleState(handle, 
-                                      state, 
-                                      commands,
-                                      &commandCount,
-                                      &rulesBinding);
+    unsigned long stateVersion;
+    unsigned int result = getStateVersion(handle, sid, &stateVersion);
+    if (result != RULES_OK) {
+        return result;
+    }
+
+    result = handleState(handle, 
+                         state,
+                         stateVersion, 
+                         commands,
+                         &commandCount,
+                         &rulesBinding);
     if (result != RULES_OK && result != ERR_EVENT_NOT_HANDLED) {
         freeCommands(commands, commandCount);
         return result;
@@ -1703,7 +1732,12 @@ unsigned int assertTimers(void *handle) {
         return result;
     }
 
-    return executeBatch(rulesBinding, commands, commandCount);
+    result = executeBatch(rulesBinding, commands, commandCount);
+    if (result != RULES_OK && result != ERR_EVENT_OBSERVED) {
+        return result;
+    }
+
+    return RULES_OK;
 }
 
 unsigned int startAction(void *handle, 
@@ -1718,13 +1752,14 @@ unsigned int startAction(void *handle,
         return result;
     }
 
-    *state = reply->element[1]->str;
-    *messages = reply->element[2]->str;
+    *state = reply->element[2]->str;
+    *messages = reply->element[3]->str;
     actionContext *context = malloc(sizeof(actionContext));
     if (!context) {
         return ERR_OUT_OF_MEMORY;
     }
     
+    context->stateVersion = reply->element[1]->integer;
     context->reply = reply;
     context->rulesBinding = rulesBinding;
     *actionHandle = context;
@@ -1740,8 +1775,10 @@ unsigned int startUpdateState(void *handle,
     char *commands[MAX_COMMAND_COUNT];
     unsigned int result = RULES_OK;
     unsigned int commandCount = 0;
+    unsigned long stateVersion = ((actionContext*)actionHandle)->stateVersion;
     result = handleState(handle, 
                          state, 
+                         stateVersion,
                          commands,
                          &commandCount,
                          rulesBinding);
@@ -1775,7 +1812,8 @@ unsigned int completeAction(void *handle,
 
     ++commandCount;
     result = handleState(handle, 
-                         state, 
+                         state,
+                         context->stateVersion, 
                          commands,
                          &commandCount,
                          &rulesBinding);
@@ -1786,14 +1824,14 @@ unsigned int completeAction(void *handle,
     }
 
     result = executeBatch(rulesBinding, commands, commandCount); 
-    if (result != RULES_OK) {
+    if (result != RULES_OK && result != ERR_EVENT_OBSERVED) {
         //reply object should be freed by the app during abandonAction
         return result;
     }
 
     freeReplyObject(reply);
     free(actionHandle);
-    return result;
+    return RULES_OK;
 }
 
 unsigned int completeAndStartAction(void *handle, 
@@ -1837,7 +1875,7 @@ unsigned int completeAndStartAction(void *handle,
                                    commands, 
                                    commandCount, 
                                    &newReply);  
-    if (result != RULES_OK) {
+    if (result != RULES_OK && result != ERR_EVENT_OBSERVED) {
         //reply object should be freed by the app during abandonAction
         return result;
     }
@@ -1848,7 +1886,8 @@ unsigned int completeAndStartAction(void *handle,
         return ERR_NO_ACTION_AVAILABLE;
     }
 
-    *messages = newReply->element[1]->str;
+    *messages = newReply->element[2]->str;
+    context->stateVersion = newReply->element[1]->integer;
     context->reply = newReply;
     return RULES_OK;
 }

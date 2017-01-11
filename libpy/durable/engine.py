@@ -403,7 +403,7 @@ class Ruleset(object):
                 rules.bind_ruleset(db['password'], db['port'], db['host'], self._handle)
 
     def assert_event(self, message):
-        rules.assert_event(self._handle, json.dumps(message))
+        return rules.assert_event(self._handle, json.dumps(message))
 
     def queue_assert_event(self, sid, ruleset_name, message):
         rules.queue_assert_event(self._handle, str(sid), ruleset_name, json.dumps(message))
@@ -412,13 +412,13 @@ class Ruleset(object):
         return rules.start_assert_event(self._handle, json.dumps(message))
 
     def assert_events(self, messages):
-        rules.assert_events(self._handle, json.dumps(messages))
+        return rules.assert_events(self._handle, json.dumps(messages))
     
     def start_assert_events(self, messages):
         return rules.start_assert_events(self._handle, json.dumps(messages))
 
     def assert_fact(self, fact):
-        rules.assert_fact(self._handle, json.dumps(fact))
+        return rules.assert_fact(self._handle, json.dumps(fact))
 
     def queue_assert_fact(self, sid, ruleset_name, message):
         rules.queue_assert_fact(self._handle, str(sid), ruleset_name, json.dumps(message))
@@ -427,13 +427,13 @@ class Ruleset(object):
         return rules.start_assert_fact(self._handle, json.dumps(fact))
 
     def assert_facts(self, facts):
-        rules.assert_facts(self._handle, json.dumps(facts))
+        return rules.assert_facts(self._handle, json.dumps(facts))
 
     def start_assert_facts(self, facts):
         return rules.start_assert_facts(self._handle, json.dumps(facts))
 
     def retract_fact(self, fact):
-        rules.retract_fact(self._handle, json.dumps(fact))
+        return rules.retract_fact(self._handle, json.dumps(fact))
 
     def queue_retract_fact(self, sid, ruleset_name, message):
         rules.queue_retract_fact(self._handle, str(sid), ruleset_name, json.dumps(message))
@@ -442,7 +442,7 @@ class Ruleset(object):
         return rules.start_retract_fact(self._handle, json.dumps(fact))
 
     def retract_facts(self, facts):
-        rules.retract_facts(self._handle, json.dumps(facts))
+        return rules.retract_facts(self._handle, json.dumps(facts))
 
     def start_retract_facts(self, facts):
         return rules.start_retract_facts(self._handle, json.dumps(facts))
@@ -454,7 +454,7 @@ class Ruleset(object):
         rules.cancel_timer(self._handle, str(sid), json.dumps(timer))
 
     def assert_state(self, state):
-        rules.assert_state(self._handle, json.dumps(state))
+        return rules.assert_state(self._handle, str(state['sid']), json.dumps(state))
         
     def get_state(self, sid):
         return json.loads(rules.get_state(self._handle, str(sid)))
@@ -494,12 +494,13 @@ class Ruleset(object):
 
     def dispatch_timers(self, complete):
         try:
-            rules.assert_timers(self._handle)
+            if not rules.assert_timers(self._handle):
+               complete(None, True)
+            else:
+               complete(None, False) 
         except Exception as error:
-            complete(error)
+            complete(error, True)
             return
-
-        complete(None)
 
     def dispatch(self, complete, async_result = None):
         state = None
@@ -514,7 +515,10 @@ class Ruleset(object):
         else:
             try:
                 result = rules.start_action(self._handle)
-                if result: 
+                if not result:
+                    complete(None, True)
+                    return
+                else: 
                     state = json.loads(result[0])
                     result_container = {'message': json.loads(result[1])}
                     action_handle = result[2]
@@ -522,12 +526,12 @@ class Ruleset(object):
             except BaseException as error:
                 t, v, tb = sys.exc_info()
                 print('start action base exception type {0}, value {1}, traceback {2}'.format(t, str(v), traceback.format_tb(tb)))
-                complete(error)
+                complete(error, True)
                 return
             except:
                 t, v, tb = sys.exc_info()
                 print('start action unknown exception type {0}, value {1}, traceback {2}'.format(t, str(v), traceback.format_tb(tb)))
-                complete('unknown error')
+                complete('unknown error', True)
                 return
         
         while 'message' in result_container:
@@ -544,7 +548,7 @@ class Ruleset(object):
 
                 if e:
                     rules.abandon_action(self._handle, c._handle)
-                    complete(e)
+                    complete(e, True)
                 else:
                     try:
                         for timer_id, timer in c.get_cancelled_timers().iteritems():
@@ -618,7 +622,7 @@ class Ruleset(object):
                                     new_result = rules.complete_and_start_action(self._handle, replies, c._handle)
                                     if new_result:
                                         if 'async' in result_container:
-                                            def terminal(e):
+                                            def terminal(e, wait):
                                                 return
 
                                             self.dispatch(terminal, [state, new_result, action_handle, action_binding])
@@ -629,17 +633,17 @@ class Ruleset(object):
                         t, v, tb = sys.exc_info()
                         print('base exception type {0}, value {1}, traceback {2}'.format(t, str(v), traceback.format_tb(tb)))
                         rules.abandon_action(self._handle, c._handle)
-                        complete(error)
+                        complete(error, True)
                     except:
                         print('unknown exception type {0}, value {1}, traceback {2}'.format(t, str(v), traceback.format_tb(tb)))
                         rules.abandon_action(self._handle, c._handle)
-                        complete('unknown error')
+                        complete('unknown error', True)
 
                     if c._is_deleted():
                         try:
                             self.delete_state(c.s.sid)
                         except BaseException as error:
-                            complete(error)
+                            complete(error, True)
 
             if 'async' in result_container:
                 del result_container['async']
@@ -647,7 +651,7 @@ class Ruleset(object):
             self._actions[action_name].run(c, action_callback) 
             result_container['async'] = True 
            
-        complete(None)
+        complete(None, False)
 
 class Statechart(Ruleset):
 
@@ -925,46 +929,43 @@ class Host(object):
         return self.get_ruleset(ruleset_name).get_ruleset_state(sid)
 
     def post_batch(self, ruleset_name, messages):
-        self.get_ruleset(ruleset_name).assert_events(messages)
+        return self.get_ruleset(ruleset_name).assert_events(messages)
 
     def start_post_batch(self, ruleset_name, messages):
         return self.get_ruleset(ruleset_name).start_assert_events(messages)
 
     def post(self, ruleset_name, message):
-        self.get_ruleset(ruleset_name).assert_event(message)
+        return self.get_ruleset(ruleset_name).assert_event(message)
 
     def start_post(self, ruleset_name, message):
         return self.get_ruleset(ruleset_name).start_assert_event(message)
 
     def assert_fact(self, ruleset_name, fact):
-        self.get_ruleset(ruleset_name).assert_fact(fact)
+        return self.get_ruleset(ruleset_name).assert_fact(fact)
 
     def start_assert_fact(self, ruleset_name, fact):
         return self.get_ruleset(ruleset_name).start_assert_fact(fact)
 
     def assert_facts(self, ruleset_name, facts):
-        self.get_ruleset(ruleset_name).assert_facts(facts)
+        return self.get_ruleset(ruleset_name).assert_facts(facts)
 
     def start_assert_facts(self, ruleset_name, facts):
         return self.get_ruleset(ruleset_name).start_assert_facts(facts)
 
     def retract_fact(self, ruleset_name, fact):
-        self.get_ruleset(ruleset_name).retract_fact(fact)
+        return self.get_ruleset(ruleset_name).retract_fact(fact)
 
     def start_retract_fact(self, ruleset_name, fact):
         return self.get_ruleset(ruleset_name).start_retract_fact(fact)
 
     def retract_facts(self, ruleset_name, facts):
-        self.get_ruleset(ruleset_name).retract_facts(facts)
+        return self.get_ruleset(ruleset_name).retract_facts(facts)
 
     def start_retract_facts(self, ruleset_name, facts):
         return self.get_ruleset(ruleset_name).start_retract_facts(facts)
 
     def patch_state(self, ruleset_name, state):
-        self.get_ruleset(ruleset_name).assert_state(state)
-
-    def patch_ruleset_state(self, ruleset_name, state):
-        self.get_ruleset(ruleset_name).set_ruleset_state(state)
+        return self.get_ruleset(ruleset_name).assert_state(state)
 
     def renew_action_lease(self, ruleset_name, sid):
         self.get_ruleset(ruleset_name).renew_action_lease(sid)
@@ -982,36 +983,73 @@ class Host(object):
         return list(rulesets.keys())
 
     def run(self):
-        def dispatch_ruleset(index):
-            def callback(e):
-                if index % 5:
-                    dispatch_ruleset(index + 1)
-                else:
-                    self._timer = threading.Timer(0.1, dispatch_ruleset, (index + 1, ))
-                    self._timer.daemon = True
-                    self._timer.start()
-
-            def timers_callback(e):
+        def dispatch_ruleset(index, wait):
+            def callback(e, w):
+                inner_wait = wait
                 if e:
                     if str(e).find('306') == -1:
                         print('Exiting {0}'.format(str(e)))
                         os._exit(1)
+                elif not w:
+                    inner_wait = False
 
-                if (index % 5 == 0) and len(self._ruleset_list):
-                    ruleset = self._ruleset_list[(index / 5) % len(self._ruleset_list)]
-                    ruleset.dispatch_timers(callback)
+                if (index == (len(self._ruleset_list) -1)) and inner_wait:
+                    self._d_timer = threading.Timer(0.25, dispatch_ruleset, ((index + 1) % len(self._ruleset_list), inner_wait, ))
+                    self._d_timer.daemon = True
+                    self._d_timer.start()
                 else:
-                    callback(e)
+                    self._d_timer = threading.Thread(target = dispatch_ruleset, args = ((index + 1) % len(self._ruleset_list), inner_wait, ))
+                    self._d_timer.daemon = True
+                    self._d_timer.start()
 
-            if len(self._ruleset_list):
-                ruleset = self._ruleset_list[index % len(self._ruleset_list)]
-                ruleset.dispatch(timers_callback)
-            else:
-                timers_callback(None)
+            if not len(self._ruleset_list):
+                self._d_timer = threading.Timer(0.5, dispatch_ruleset, (0, False, ))
+                self._d_timer.daemon = True
+                self._d_timer.start()
+            else: 
+                ruleset = self._ruleset_list[index]
+                if not index:
+                    wait = True
 
-        self._timer = threading.Timer(0.1, dispatch_ruleset, (0,))
-        self._timer.daemon = True
-        self._timer.start()
+                ruleset.dispatch(callback)
+
+        def dispatch_timers(index, wait):
+            def callback(e, w):
+                inner_wait = wait
+                if e:
+                    print('Error {0}'.format(str(e)))
+                elif not w:
+                    inner_wait = False
+
+                if (index == (len(self._ruleset_list) -1)) and inner_wait:
+                    self._t_timer = threading.Timer(0.25, dispatch_timers, ((index + 1) % len(self._ruleset_list), inner_wait, ))
+                    self._t_timer.daemon = True
+                    self._t_timer.start()
+                else:
+                    self._t_timer = threading.Thread(target = dispatch_timers, args = ((index + 1) % len(self._ruleset_list), inner_wait, ))
+                    self._t_timer.daemon = True
+                    self._t_timer.start()
+
+
+
+            if not len(self._ruleset_list):
+                self._t_timer = threading.Timer(0.5, dispatch_timers, (0, False, ))
+                self._t_timer.daemon = True
+                self._t_timer.start()
+            else: 
+                ruleset = self._ruleset_list[index]
+                if not index:
+                    wait = True
+
+                ruleset.dispatch_timers(callback)
+
+
+        self._d_timer = threading.Timer(0.1, dispatch_ruleset, (0, False, ))
+        self._d_timer.daemon = True
+        self._d_timer.start()
+        self._t_timer = threading.Timer(0.1, dispatch_timers, (0, False, ))
+        self._t_timer.daemon = True
+        self._t_timer.start()
 
 
 class Queue(object):

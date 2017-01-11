@@ -3,11 +3,10 @@ require "timers"
 require_relative "../src/rulesrb/rules"
 
 module Engine
-  @@timers = nil
 
   class Closure_Queue
     attr_reader :_queued_posts, :_queued_asserts, :_queued_retracts
-    
+
     def initialize()
       @_queued_posts = []
       @_queued_asserts = []
@@ -246,7 +245,7 @@ module Engine
     def to_s
       @_d.to_s
     end
-    
+
     private
 
     def handle_property(name, value=nil)
@@ -283,7 +282,7 @@ module Engine
       @sync = true
       @root = self
       @timers = Timers::Group.new
-    
+
       if func.arity > 1
         @sync = false
       end
@@ -305,13 +304,13 @@ module Engine
     def run(c, complete)
       if @sync
         begin
-          @func.call c  
+          @func.call c
         rescue Exception => e
           puts "unexpected error #{e}"
           puts e.backtrace
           c.s.exception = e.to_s
         end
-        
+
         if @next
           @next.run c, complete
         else
@@ -350,7 +349,7 @@ module Engine
           puts e.backtrace
           c.s.exception = e.to_s
           complete.call nil
-        end  
+        end
       end
     end
 
@@ -368,9 +367,9 @@ module Engine
               c.retract c.m[0].chart_context
             else
               c.retract c.chart_context
-            end 
+            end
           end
-        
+
           id = rand(1000000000)
           if assert_state
             c.assert(:label => to_state, :chart => 1, :id => id)
@@ -410,19 +409,19 @@ module Engine
           @actions[rule_name] = action.root
         elsif action.kind_of? Proc
           @actions[rule_name] = Promise.new action
-        end      
+        end
       end
 
-      @handle = Rules.create_ruleset name, JSON.generate(ruleset_definition), state_cache_size  
+      @handle = Rules.create_ruleset name, JSON.generate(ruleset_definition), state_cache_size
       @definition = ruleset_definition
-    end    
+    end
 
     def bind(databases)
       for db in databases do
         if db.kind_of? String
           Rules.bind_ruleset @handle, db, 0, nil
-        else 
-          Rules.bind_ruleset @handle, db[:host], db[:port], db[:password] 
+        else
+          Rules.bind_ruleset @handle, db[:host], db[:port], db[:password]
         end
       end
     end
@@ -436,7 +435,7 @@ module Engine
     end
 
     def start_assert_event(message)
-      return Rules.start_assert_event @handle, JSON.generate(message)
+      Rules.start_assert_event @handle, JSON.generate(message)
     end
 
     def assert_events(messages)
@@ -444,7 +443,7 @@ module Engine
     end
 
     def start_assert_events(messages)
-      return Rules.start_assert_events @handle, JSON.generate(messages)
+      Rules.start_assert_events @handle, JSON.generate(messages)
     end
 
     def start_timer(sid, timer, timer_duration)
@@ -464,7 +463,7 @@ module Engine
     end
 
     def start_assert_fact(fact)
-      return Rules.start_assert_fact @handle, JSON.generate(fact)
+      Rules.start_assert_fact @handle, JSON.generate(fact)
     end
 
     def assert_facts(facts)
@@ -472,7 +471,7 @@ module Engine
     end
 
     def start_assert_facts(facts)
-      return Rules.start_assert_facts @handle, JSON.generate(facts)
+      Rules.start_assert_facts @handle, JSON.generate(facts)
     end
 
     def retract_fact(fact)
@@ -484,7 +483,7 @@ module Engine
     end
 
     def start_retract_fact(fact)
-      return Rules.start_retract_fact @handle, JSON.generate(fact)
+      Rules.start_retract_fact @handle, JSON.generate(fact)
     end
 
     def retract_facts(facts)
@@ -492,11 +491,15 @@ module Engine
     end
 
     def start_retract_facts(facts)
-      return Rules.start_retract_facts @handle, JSON.generate(facts)
+      Rules.start_retract_facts @handle, JSON.generate(facts)
     end
 
     def assert_state(state)
-      Rules.assert_state @handle, JSON.generate(state)
+      if state.key? :sid 
+        Rules.assert_state @handle, state[:sid].to_s, JSON.generate(state)
+      else
+        Rules.assert_state @handle, state["sid"].to_s, JSON.generate(state)
+      end
     end
 
     def get_state(sid)
@@ -509,11 +512,11 @@ module Engine
 
     def renew_action_lease(sid)
       Rules.renew_action_lease @handle, sid.to_s
-    end 
+    end
 
     def Ruleset.create_rulesets(parent_name, host, ruleset_definitions, state_cache_size)
       branches = {}
-      for name, definition in ruleset_definitions do  
+      for name, definition in ruleset_definitions do
         name = name.to_s
         if name.end_with? "$state"
           name = name[0..-7]
@@ -529,25 +532,27 @@ module Engine
         end
       end
 
-      branches   
+      branches
     end
 
     def dispatch_timers(complete)
       begin
-        Rules.assert_timers @handle
+        if !(Rules.assert_timers @handle)
+          complete.call nil, false
+        else
+          complete.call nil, true
+        end
       rescue Exception => e
-        complete.call e
+        complete.call e, true
         return
       end
-
-      complete.call nil
     end
-                    
+
     def dispatch(complete, async_result = nil)
-      result_container = {}
+      state = nil
       action_handle = nil
       action_binding = nil
-      state = nil
+      result_container = {}
       if async_result
         state = async_result[0]
         result_container = {:message => JSON.parse(async_result[1])}
@@ -556,18 +561,23 @@ module Engine
       else
         begin
           result = Rules.start_action @handle
-          if result
+          if !result
+            complete.call nil, true
+            return
+          else
             state = JSON.parse result[0]
             result_container = {:message => JSON.parse(result[1])}
             action_handle = result[2]
             action_binding = result[3]
           end
         rescue Exception => e
-          complete.call e
+          puts "start action exception #{e}"
+          puts e.backtrace
+          complete.call e, true
           return
         end
       end
-      
+
       while result_container.key? :message do
         action_name = nil
         for action_name, message in result_container[:message] do
@@ -580,15 +590,15 @@ module Engine
         if result_container.key? :async
           result_container.delete :async
         end
-                
+
         @actions[action_name].run c, -> e {
           if c.has_completed
             return
           end
-            
+
           if e
             Rules.abandon_action @handle, c.handle
-            complete.call e
+            complete.call e, true
           else
             begin
               for timer_id, timer in c._cancelled_timers do
@@ -602,17 +612,17 @@ module Engine
               for ruleset_name, q in c._queues do
                 for message in q._queued_posts do
                   sid = (message.key? :sid) ? message[:sid]: message['sid']
-                  queue_assert_event sid.to_s, ruleset_name, message  
+                  queue_assert_event sid.to_s, ruleset_name, message
                 end
 
                 for message in q._queued_asserts do
                   sid = (message.key? :sid) ? message[:sid]: message['sid']
-                  queue_assert_fact sid.to_s, ruleset_name, message  
+                  queue_assert_fact sid.to_s, ruleset_name, message
                 end
 
                 for message in q._queued_retracts do
                   sid = (message.key? :sid) ? message[:sid]: message['sid']
-                  queue_retract_fact sid.to_s, ruleset_name, message  
+                  queue_retract_fact sid.to_s, ruleset_name, message
                 end
               end
 
@@ -674,7 +684,7 @@ module Engine
                     new_result = Rules.complete_and_start_action @handle, replies, c.handle
                     if new_result
                       if result_container.key? :async
-                        dispatch -> e {}, [state, new_result, action_handle, action_binding]
+                        dispatch -> e, wait {}, [state, new_result, action_handle, action_binding]
                       else
                         result_container[:message] = JSON.parse new_result
                       end
@@ -684,24 +694,24 @@ module Engine
               end
             rescue Exception => e
               Rules.abandon_action @handle, c.handle
-              puts "internal error #{e}"
+              puts "unknown exception #{e}"
               puts e.backtrace
-              complete.call e
+              complete.call e, true
             end
 
             if c._deleted
               begin
                 delete_state c.s.sid
               rescue Exception => e
-                complete.call e
+                complete.call e, true
               end
             end
 
           end
         }
-        result_container[:async] = true 
+        result_container[:async] = true
       end
-      complete.call nil
+      complete.call nil, false
     end
 
     def to_json
@@ -725,22 +735,22 @@ module Engine
     def transform(parent_name, parent_triggers, parent_start_state, chart_definition, rules)
       start_state = {}
       reflexive_states = {}
-      
+
       for state_name, state in chart_definition do
         qualified_name = state_name.to_s
         qualified_name = "#{parent_name}.#{state_name}" if parent_name
         start_state[qualified_name] = true
 
         for trigger_name, trigger in state do
-          if ((trigger.key? :to) && (trigger[:to] == state_name)) || 
-             ((trigger.key? "to") && (trigger["to"] == state_name)) ||
-             (trigger.key? :count) || (trigger.key? "count") ||
-             (trigger.key? :cap) || (trigger.key? "cap") ||
-             (trigger.key? :span) || (trigger.key? "span")
+          if ((trigger.key? :to) && (trigger[:to] == state_name)) ||
+              ((trigger.key? "to") && (trigger["to"] == state_name)) ||
+              (trigger.key? :count) || (trigger.key? "count") ||
+              (trigger.key? :cap) || (trigger.key? "cap") ||
+              (trigger.key? :span) || (trigger.key? "span")
             reflexive_states[qualified_name] = true
           end
         end
-      end 
+      end
 
       for state_name, state in chart_definition do
         qualified_name = state_name.to_s
@@ -756,7 +766,7 @@ module Engine
 
         for trigger_name, trigger in state do
           trigger_name = trigger_name.to_s
-          if trigger_name != "$chart" 
+          if trigger_name != "$chart"
             if parent_name && (trigger.key? "to")
               to_name = trigger["to"].to_s
               trigger["to"] = "#{parent_name}.#{to_name}"
@@ -768,7 +778,7 @@ module Engine
           end
         end
 
-        if state.key? "$chart" 
+        if state.key? "$chart"
           transform qualified_name, triggers, start_state, state["$chart"], rules
         elsif state.key? :$chart
           transform qualified_name, triggers, start_state, state[:$chart], rules
@@ -809,7 +819,7 @@ module Engine
               else
                 all_trigger = trigger["all"]
               end
-              rule[:all] = all_trigger.dup 
+              rule[:all] = all_trigger.dup
               rule[:all] << state_test
             elsif (trigger.key? :any) || (trigger.key? "any")
               any_trigger = nil
@@ -819,10 +829,10 @@ module Engine
                 any_trigger = trigger["any"]
               end
               rule[:all] = [state_test, {"m$any" => any_trigger}]
-            else 
+            else
               rule[:all] = [state_test]
             end
-              
+
             if (trigger.key? "run") || (trigger.key? :run)
               trigger_run = nil
               if trigger.key? :run
@@ -837,7 +847,7 @@ module Engine
                 rule[:run] = trigger_run
               elsif trigger_run.kind_of? Proc
                 rule[:run] = Promise.new trigger_run
-              end     
+              end
             end
 
             if (trigger.key? "to") || (trigger.key? :to)
@@ -883,9 +893,9 @@ module Engine
         started = true
 
         if parent_name
-          rules[parent_name + "$start"] = {:all => [{:chart_context => {:$and => [{:label => parent_name}, {:chart => 1}]}}], run: To.new(nil, state_name, false)};
+          rules[parent_name + "$start"] = {:all => [{:chart_context => {:$and => [{:label => parent_name}, {:chart => 1}]}}], :run => To.new(nil, state_name, false)};
         else
-          rules[:$start] = {:all => [{:chart_context => {:$and => [{:$nex => {:running => 1}}, {:$s => 1}]}}], run: To.new(nil, state_name, false)};
+          rules[:$start] = {:all => [{:chart_context => {:$and => [{:$nex => {:running => 1}}, {:$s => 1}]}}], :run => To.new(nil, state_name, false)};
         end
       end
 
@@ -917,10 +927,10 @@ module Engine
             end
           else
             for transition_name, transition in stage_to do
-              if (transition_name == stage_name) || 
-                 (transition.key? :count) || (transition.key? "count") ||
-                 (transition.key? :cap) || (transition.key? "cap") ||
-                 (transition.key? :span) || (transition.key? "span")
+              if (transition_name == stage_name) ||
+                  (transition.key? :count) || (transition.key? "count") ||
+                  (transition.key? :cap) || (transition.key? "cap") ||
+                  (transition.key? :span) || (transition.key? "span")
                 reflexive_stages[stage_name] = true
               end
             end
@@ -933,7 +943,7 @@ module Engine
         if reflexive_stages.key? stage_name
           from_stage = stage_name
         end
-        
+
         stage_name = stage_name.to_s
         stage_test = {:chart_context => {:$and => [{:label => stage_name}, {:chart => 1}]}}
         if (stage.key? :to) || (stage.key? "to")
@@ -1004,7 +1014,7 @@ module Engine
                 else
                   all_transition = transition["all"]
                 end
-                rule[:all] = all_transition.dup 
+                rule[:all] = all_transition.dup
                 rule[:all] << stage_test
               elsif (transition.key? :any) || (transition.key? "any")
                 any_transition = nil
@@ -1014,7 +1024,7 @@ module Engine
                   any_transition = transition["any"]
                 end
                 rule[:all] = [stage_test, {"m$any" => any_transition}]
-              else 
+              else
                 rule[:all] = [stage_test]
               end
 
@@ -1123,7 +1133,7 @@ module Engine
     end
 
     def start_post_batch(ruleset_name, *events)
-      return get_ruleset(ruleset_name).start_assert_events events
+      get_ruleset(ruleset_name).start_assert_events events
     end
 
     def post(ruleset_name, event)
@@ -1131,7 +1141,7 @@ module Engine
     end
 
     def start_post(ruleset_name, event)
-      return get_ruleset(ruleset_name).start_assert_event event
+      get_ruleset(ruleset_name).start_assert_event event
     end
 
     def assert(ruleset_name, fact)
@@ -1139,7 +1149,7 @@ module Engine
     end
 
     def start_assert(ruleset_name, fact)
-      return get_ruleset(ruleset_name).start_assert_fact fact
+      get_ruleset(ruleset_name).start_assert_fact fact
     end
 
     def assert_facts(ruleset_name, *facts)
@@ -1147,7 +1157,7 @@ module Engine
     end
 
     def start_assert_facts(ruleset_name, *facts)
-      return get_ruleset(ruleset_name).start_assert_facts facts
+      get_ruleset(ruleset_name).start_assert_facts facts
     end
 
     def retract(ruleset_name, fact)
@@ -1155,7 +1165,7 @@ module Engine
     end
 
     def start_retract(ruleset_name, fact)
-      return get_ruleset(ruleset_name).start_retract_fact fact
+      get_ruleset(ruleset_name).start_retract_fact fact
     end
 
     def retract_facts(ruleset_name, *facts)
@@ -1163,7 +1173,7 @@ module Engine
     end
 
     def start_retract_facts(ruleset_name, *facts)
-      return get_ruleset(ruleset_name).start_retract_facts facts
+      get_ruleset(ruleset_name).start_retract_facts facts
     end
 
     def patch_state(ruleset_name, state)
@@ -1178,7 +1188,7 @@ module Engine
       rulesets = Ruleset.create_rulesets(parent_name, self, ruleset_definitions, @state_cache_size)
       for ruleset_name, ruleset in rulesets do
         if @ruleset_directory.key? ruleset_name
-          raise ArgumentError, "Ruleset with name #{ruleset_name} already registered" 
+          raise ArgumentError, "Ruleset with name #{ruleset_name} already registered"
         end
 
         @ruleset_directory[ruleset_name] = ruleset
@@ -1190,42 +1200,103 @@ module Engine
     end
 
     def start!
-      index = 1
-      timers = Timers::Group.new
-  
-      dispatch_ruleset = -> c {
 
-        callback = -> e {
-          if index % 5 == 0
-            index += 1
-            timers.after 0.01, &dispatch_ruleset
-          else
-            index += 1
-            dispatch_ruleset.call nil
+      start_dispatch_ruleset_thread
+
+      start_dispatch_timers_thread
+
+    end
+
+    private
+
+    def start_dispatch_timers_thread
+
+      timer = Timers::Group.new
+
+      thread_lambda = -> c {
+
+        callback = -> e, w {
+          inner_wait = Thread.current[:wait]
+          if e
+            puts "unexpected error #{e}"
+          elsif !w
+            inner_wait = false
           end
-        }
 
-        timers_callback = -> e {
-          if index % 5 == 0 && @ruleset_list.length > 0
-            ruleset = @ruleset_list[(index / 5) % @ruleset_list.length]
-            ruleset.dispatch_timers callback
+          if (Thread.current[:index] == (@ruleset_list.length-1)) & inner_wait
+            Thread.current[:index] = (Thread.current[:index] + 1) % @ruleset_list.length
+            Thread.current[:wait] = inner_wait
+            timer.after 0.25, &thread_lambda
           else
-            callback.call e
+            Thread.current[:index] = (Thread.current[:index] + 1) % @ruleset_list.length
+            Thread.current[:wait] = inner_wait
+            timer.after 0, &thread_lambda
           end
         }
 
         if @ruleset_list.length > 0
-          ruleset = @ruleset_list[index % @ruleset_list.length]
-          ruleset.dispatch timers_callback
+          ruleset = @ruleset_list[Thread.current[:index]]
+          Thread.current[:wait] = true unless Thread.current[:index] > 0
+          ruleset.dispatch_timers callback
         else
-          timers_callback.call nil
+          timer.after 0.5, &thread_lambda
         end
+
       }
 
-      timers.after 0.01, &dispatch_ruleset
+      timer.after 0.1, &thread_lambda
+
       Thread.new do
-        loop { timers.wait }
+        Thread.current[:index] = 0
+        Thread.current[:wait] = 0
+        loop { timer.wait }
       end
+
+    end
+
+    def start_dispatch_ruleset_thread
+
+      timer = Timers::Group.new
+
+      thread_lambda = -> c {
+
+        callback = -> e, w {
+          inner_wait = Thread.current[:wait]
+          if e
+            puts "unexpected error #{e}"
+            puts e.backtrace
+          elsif !w
+            inner_wait = false
+          end
+          if (Thread.current[:index] == (@ruleset_list.length-1)) & inner_wait
+            Thread.current[:index] = ( Thread.current[:index] + 1 ) % @ruleset_list.length
+            Thread.current[:wait] = inner_wait
+            timer.after 0.25, &thread_lambda
+          else
+            Thread.current[:index] = ( Thread.current[:index] + 1 ) % @ruleset_list.length
+            Thread.current[:wait] = inner_wait
+            timer.after 0, &thread_lambda
+          end
+        }
+
+        if @ruleset_list.empty?
+          timer.after 0.5, &thread_lambda
+        else
+          ruleset = @ruleset_list[Thread.current[:index]]
+          Thread.current[:wait] = true if (Thread.current[:index] > 0)
+          ruleset.dispatch callback
+        end
+
+      }
+
+      timer.after 0.1, &thread_lambda
+
+      Thread.new do
+        Thread.current[:index] = 0
+        Thread.current[:wait] = 0
+        loop { timer.wait }
+      end
+
     end
 
   end
@@ -1237,11 +1308,11 @@ module Engine
       @handle = Rules.create_client @_ruleset_name, state_cache_size
       if database.kind_of? String
         Rules.bind_ruleset @handle, database, 0, nil
-      else 
-        Rules.bind_ruleset @handle, database[:host], database[:port], database[:password] 
+      else
+        Rules.bind_ruleset @handle, database[:host], database[:port], database[:password]
       end
     end
-        
+
     def post(message)
       sid = (message.key? :sid) ? message[:sid]: message['sid']
       Rules.queue_assert_event @handle, sid.to_s, @_ruleset_name, JSON.generate(message)

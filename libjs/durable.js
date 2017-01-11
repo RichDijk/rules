@@ -66,87 +66,89 @@ exports = module.exports = durableEngine = function () {
     };
 
     var term = function (type, left) {
-        var that = {};
         var op;
         var right;
         var alias;
+        var that;
 
-        that.gt = function (rvalue) {
+        var gt = function (rvalue) {
             op = '$gt';
             right = rvalue;
             return that;
         };
 
-        that.gte = function (rvalue) {
+        var gte = function (rvalue) {
             op = '$gte';
             right = rvalue;
             return that;
         };
 
-        that.lt = function (rvalue) {
+        var lt = function (rvalue) {
             op = '$lt';
             right = rvalue;
             return that;
         };
 
-        that.lte = function (rvalue) {
+        var lte = function (rvalue) {
             op = '$lte';
             right = rvalue;
             return that;
         };
 
-        that.eq = function (rvalue) {
+        var eq = function (rvalue) {
             op = '$eq';
             right = rvalue;
             return that;
         };
 
-        that.neq = function (rvalue) {
+        var neq = function (rvalue) {
             op = '$neq';
             right = rvalue;
             return that;
         };
 
-        that.ex = function () {
+        var mt = function (rvalue) {
+            op = '$mt';
+            right = rvalue;
+            return that;
+        };
+
+        var ex = function () {
             op = '$ex';
             right  = 1;
             return that;
         };
 
-        that.nex = function () {
+        var nex = function () {
             op = '$nex';
             right  = 1;
             return that;
         };
 
-        that.setAlias = function(name) {
+        var setAlias = function(name) {
             alias = name;
             return that;
         }
 
-        that.and = function () {
+        var innerAnd = function () {
             var terms = [that];
             argsToArray(arguments, terms);
             return and.apply(this, terms);
         };
 
-        that.or = function () {
+        var innerOr = function () {
             var terms = [that];
             argsToArray(arguments, terms);
             return or.apply(this, terms);
         };
 
-        that.define = function (proposedAlias) {
+        var define = function (proposedAlias) {
             var newDefinition = {};
             if (!op) {
-                if (sid) {
-                    newDefinition[type] = {name: left, id: sid};
-                } else {
-                    newDefinition[type] = left;
-                }
+                newDefinition[type] = left;
             } else {
                 var rightDefinition = right;
-                if (typeof(right) === 'object') {
+                if (typeof(right) === 'object' && right !== null) {
                     rightDefinition = right.define();
                 }
 
@@ -172,6 +174,46 @@ exports = module.exports = durableEngine = function () {
             
             return aliasedDefinition;
         };
+
+        that = r.createProxy(
+            function(name) {
+                switch (name) {
+                    case 'gt':
+                        return gt;
+                    case 'gte':
+                        return gte;
+                    case 'lt':
+                        return lt;
+                    case 'lte':
+                        return lte;
+                    case 'eq':
+                        return eq;
+                    case 'neq':
+                        return neq;
+                    case 'mt':
+                        return mt;
+                    case 'ex':
+                        return ex;
+                    case 'nex':
+                        return nex;
+                    case 'and':
+                        return innerAnd;
+                    case 'or':
+                        return innerOr;
+                    case 'setAlias':
+                        return setAlias;
+                    case 'define':
+                        return define;
+                    case 'push':
+                        return false;
+                    default:
+                        return term(type, left + '.' + name);
+                }
+            },
+            function(name, value) {
+                return;
+            }
+        );
 
         return that;
     };
@@ -256,38 +298,38 @@ exports = module.exports = durableEngine = function () {
         return that;
     };
 
-    var idiom = function (type) {
-        var that = {};
+    var idiom = function (type, parentName) {
+        var that;
         var op;
         var right = [];
         var left;
         var sid;
 
-        that.add = function () {
+        var innerAdd = function () {
             var idioms = [that];
             argsToArray(arguments, idioms);
             return add.apply(this, idioms);
         }
 
-        that.sub = function (rvalue) {
+        var innerSub = function (rvalue) {
             var idioms = [that];
             argsToArray(arguments, idioms);
             return sub.apply(this, idioms);
         }
 
-        that.mul = function (rvalue) {
+        var innerMul = function (rvalue) {
             var idioms = [that];
             argsToArray(arguments, idioms);
             return mul.apply(this, idioms);
         }
 
-        that.div = function (rvalue) {
+        var innerDiv = function (rvalue) {
             var idioms = [that];
             argsToArray(arguments, idioms);
             return div.apply(this, idioms);
         }
 
-        that.id = function (refid) {
+        var refId = function (refid) {
             sid = refid;
             return r.createProxy(
                 function(name) {
@@ -300,7 +342,7 @@ exports = module.exports = durableEngine = function () {
             );
         }; 
 
-        that.define = function () {
+        var define = function () {
             var newDefinition;
             if (sid) {
                 newDefinition = {name: left, id: sid};
@@ -312,11 +354,37 @@ exports = module.exports = durableEngine = function () {
             return leftDefinition;
         }
 
+        that = r.createProxy(
+            function(name) {
+                switch (name) {
+                    case 'add':
+                        return innerAdd;
+                    case 'sub':
+                        return innerSub;
+                    case 'mul':
+                        return innerMul;
+                    case 'div':
+                        return innerDiv;
+                    case 'refId':
+                        return refId;
+                    case 'define':
+                        return define;
+                    default:
+                        left = left + '.' + name;        
+                        return that;
+                }
+            },
+            function(name, value) {
+                return;
+            }
+        );
+
         return r.createProxy(
             function(name) {
-                if (name === 'id') {
-                    return that.id;
+                if (name === 'refId') {
+                    return refId;
                 }
+
 
                 left = name;
                 return that;
@@ -409,13 +477,18 @@ exports = module.exports = durableEngine = function () {
                 }
 
                 expObject = {};
-                expDefinition = newArray[i].define(refName);   
+                if (name === undefined) {
+                    expDefinition = newArray[i].define(refName);   
+                } else {
+                    expDefinition = newArray[i].define(name + '.' + refName);      
+                }
+
                 if (expDefinition[refName + '$all']) {
                     expObject[refName + '$all'] = expDefinition[refName + '$all'];
                 } else if (expDefinition[refName + '$any']) {
                     expObject[refName + '$any'] = expDefinition[refName + '$any'];
                 } else if (expDefinition[refName + '$not']) {
-                    expObject[refName + '$not'] = expDefinition[refName + '$not'][0]['m'];
+                    expObject[refName + '$not'] = expDefinition[refName + '$not'][0][refName + '.m'];
                 } else {
                     expObject = expDefinition;
                 }

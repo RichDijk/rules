@@ -26,6 +26,7 @@
 #define ERR_MAX_COMMAND_COUNT 209
 #define ERR_MAX_ADD_COUNT 210
 #define ERR_MAX_EVAL_COUNT 211
+#define ERR_EVENT_OBSERVED 212
 #define ERR_CONNECT_REDIS 301
 #define ERR_REDIS_ERROR 302
 #define ERR_NO_ACTION_AVAILABLE 303
@@ -37,6 +38,13 @@
 #define ERR_STATE_NOT_LOADED 403
 #define ERR_STALE_STATE 404
 #define ERR_PROPERTY_NOT_FOUND 405
+#define ERR_MAX_PROPERTY_NAME_LENGTH 406
+#define ERR_PARSE_REGEX 501
+#define ERR_REGEX_MAX_TRANSITIONS 502
+#define ERR_REGEX_MAX_STATES 503
+#define ERR_REGEX_QUEUE_FULL 504
+#define ERR_REGEX_LIST_FULL 505
+#define ERR_REGEX_SET_FULL 506
 
 #define NEXT_BUCKET_LENGTH 512
 #define NEXT_LIST_LENGTH 32
@@ -81,14 +89,10 @@ unsigned int startAssertEvent(void *handle,
                              unsigned int *replyCount);
 
 unsigned int assertEvents(void *handle, 
-                          char *messages, 
-                          unsigned int *resultsLength, 
-                          unsigned int **results);
+                          char *messages);
 
 unsigned int startAssertEvents(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                               void **rulesBinding, 
                               unsigned int *replyCount);
 
@@ -105,15 +109,11 @@ unsigned int assertFact(void *handle,
 
 unsigned int startAssertFacts(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                               void **rulesBinding, 
                               unsigned int *replyCount);
 
 unsigned int assertFacts(void *handle, 
-                         char *messages, 
-                         unsigned int *resultsLength, 
-                         unsigned int **results);
+                         char *messages);
 
 unsigned int retractFact(void *handle, 
                          char *message);
@@ -124,14 +124,10 @@ unsigned int startRetractFact(void *handle,
                              unsigned int *replyCount);
 
 unsigned int retractFacts(void *handle, 
-                          char *messages, 
-                          unsigned int *resultsLength, 
-                          unsigned int **results);
+                          char *messages);
 
 unsigned int startRetractFacts(void *handle, 
                               char *messages, 
-                              unsigned int *resultsLength, 
-                              unsigned int **results, 
                               void **rulesBinding, 
                               unsigned int *replyCount);
 
@@ -141,7 +137,8 @@ unsigned int startUpdateState(void *handle,
                               void **rulesBinding,
                               unsigned int *replyCount);
 
-unsigned int assertState(void *handle, 
+unsigned int assertState(void *handle,
+                         char *sid, 
                          char *state);
 
 unsigned int startAction(void *handle, 

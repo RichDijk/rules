@@ -4,6 +4,7 @@ import random
 import sys
 import threading
 import time
+import json
 
 with statechart('fraud0'):
     with state('start'):
@@ -198,16 +199,146 @@ with statechart('fraud8'):
         host.post('fraud8', {'id': 1, 'sid': 1, 'amount': 200})
 
 
-with ruleset('a0'):
-    @when_all((m.subject == 'go') | (m.subject == 'approve') | (m.subject == 'ok'))
+with ruleset('test'):
+    @when_all(c.first << +s.last,
+              c.second << (m.id == c.first.last + 1) & (m.action == 'open'))
+    def open(c):
+        c.s.last = c.second.id
+        print('open path {0} action = {1}'.format(c.second.path, c.second.action))
+
+    @when_all(c.first << +s.last,
+              c.second << (m.id == c.first.last + 1) & ((m.action == 'read') | (m.action == 'write')))
+    def access(c):
+        c.s.last = c.second.id
+        print('access path {0} action = {1}'.format(c.second.path, c.second.action))
+
+    @when_start
+    def start_test(host):
+        host.patch_state('test', {'sid': 1, 'last': 0})
+        host.post('test', {'id': 3, 'sid': 1, 'action': 'open', 'path':'test3'})
+        host.post('test', {'id': 2, 'sid': 1, 'action': 'open', 'path':'test2'})
+        host.post('test', {'id': 1, 'sid': 1, 'action': 'open', 'path':'test1'})
+
+
+with ruleset('match1'):
+    @when_all(m.subject.matches('a+(bc|de?)*'))
     def approved(c):
-        print ('a0 approved ->{0}'.format(c.m.subject))
+        print ('match1 ->{0}'.format(c.m.subject))
 
     @when_start
     def start(host):
-        host.post('a0', {'id': 1, 'sid': 1, 'subject': 'approve'})
-        host.post('a0', {'id': 2, 'sid': 2, 'subject': 'go'})
-        host.post('a0', {'id': 3, 'sid': 3, 'subject': 'ok'})
+        host.post('match1', {'id': 1, 'sid': 1, 'subject': 'abcbc'})
+        host.post('match1', {'id': 2, 'sid': 1, 'subject': 'addd'})
+        host.post('match1', {'id': 3, 'sid': 1, 'subject': 'ddd'})
+        host.post('match1', {'id': 4, 'sid': 1, 'subject': 'adee'})
+
+
+with ruleset('match2'):
+    @when_all(m.ip.matches('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'))
+    def approved(c):
+        print ('match2 ip ->{0}'.format(c.m.ip))
+
+    @when_start
+    def start(host):
+        host.post('match2', {'id': 1, 'sid': 1, 'ip': '73.60.124.136'})
+        host.post('match2', {'id': 2, 'sid': 1, 'ip': '256.60.124.136'})
+        host.post('match2', {'id': 3, 'sid': 1, 'ip': '250.60.124.256'})
+        host.post('match2', {'id': 4, 'sid': 1, 'ip': '73.60.124'})
+        host.post('match2', {'id': 5, 'sid': 1, 'ip': '127.0.0.1'})
+
+
+with ruleset('match3'):
+    @when_all(m.url.matches('(https?://)?([0-9a-z.-]+)\\.[a-z]{2,6}(/[A-z0-9_.-]+/?)*'))
+    def approved(c):
+        print ('match3 url ->{0}'.format(c.m.url))
+
+    @when_start
+    def start(host):
+        host.post('match3', {'id': 1, 'sid': 1, 'url': 'https://github.com'})
+        host.post('match3', {'id': 2, 'sid': 1, 'url': 'http://github.com/jruizgit/rul!es'})
+        host.post('match3', {'id': 3, 'sid': 1, 'url': 'https://github.com/jruizgit/rules/blob/master/docs/rb/reference.md'})
+        host.post('match3', {'id': 4, 'sid': 1, 'url': '//rules'})
+        host.post('match3', {'id': 5, 'sid': 1, 'url': 'https://github.c/jruizgit/rules'})
+
+
+with ruleset('a0_0'):
+    @when_all((m.subject == 'go') | (m.subject == 'approve') | (m.subject == 'ok'))
+    def approved(c):
+        print ('a0_0 approved ->{0}'.format(c.m.subject))
+
+    @when_start
+    def start(host):
+        host.post('a0_0', {'id': 1, 'sid': 1, 'subject': 'approve'})
+        host.post('a0_0', {'id': 2, 'sid': 1, 'subject': 'go'})
+        host.post('a0_0', {'id': 3, 'sid': 1, 'subject': 'ok'})
+        host.post('a0_0', {'id': 4, 'sid': 1, 'subject': 'not ok'})
+
+with ruleset('a0_1'):
+    @when_all((m.subject == 'go') & ((m.amount < 100) | (m.amount > 1000)))
+    def approved(c):
+        print ('a0_1 approved ->{0} {1}'.format(c.m.subject, c.m.amount))
+
+    @when_start
+    def start(host):
+        host.post('a0_1', {'id': 1, 'sid': 1, 'subject': 'go', 'amount': 50})
+        host.post('a0_1', {'id': 2, 'sid': 1, 'subject': 'go', 'amount': 500})
+        host.post('a0_1', {'id': 3, 'sid': 1, 'subject': 'go', 'amount': 5000})
+
+with ruleset('a0_2'):
+    @when_all(((m.subject == 'go') | (m.subject == 'approve')) & ((m.amount < 100) | (m.amount > 1000)))
+    def approved(c):
+        print ('a0_2 approved ->{0} {1}'.format(c.m.subject, c.m.amount))
+
+    @when_start
+    def start(host):
+        host.post('a0_2', {'id': 1, 'sid': 1, 'subject': 'go', 'amount': 50})
+        host.post('a0_2', {'id': 2, 'sid': 1, 'subject': 'approve', 'amount': 500})
+        host.post('a0_2', {'id': 3, 'sid': 1, 'subject': 'approve', 'amount': 5000})
+
+with ruleset('a0_3'):
+    @when_all(((m.subject == 'go') & (m.amount < 100)) | ((m.subject == 'approve') & (m.amount > 1000)))
+    def approved(c):
+        print ('a0_3 approved ->{0} {1}'.format(c.m.subject, c.m.amount))
+
+    @when_start
+    def start(host):
+        host.post('a0_3', {'id': 1, 'sid': 1, 'subject': 'go', 'amount': 50})
+        host.post('a0_3', {'id': 2, 'sid': 1, 'subject': 'approve', 'amount': 500})
+        host.post('a0_3', {'id': 3, 'sid': 1, 'subject': 'approve', 'amount': 5000})
+
+with ruleset('a0_4'):
+    @when_all(((m.subject == 'go') | (m.subject == 'ok')) | ((m.subject == 'approve') | (m.subject == 'yes')))
+    def approved(c):
+        print ('a0_4 approved ->{0}'.format(c.m.subject))
+
+    @when_start
+    def start(host):
+        host.post('a0_4', {'id': 1, 'sid': 1, 'subject': 'go'})
+        host.post('a0_4', {'id': 2, 'sid': 1, 'subject': 'ok'})
+        host.post('a0_4', {'id': 3, 'sid': 1, 'subject': 'approve'})
+        host.post('a0_4', {'id': 4, 'sid': 1, 'subject': 'yes'})
+        host.post('a0_4', {'id': 5, 'sid': 1, 'subject': 'no go'})
+
+with ruleset('a0_5'):
+    @when_all(((m.subject == 'go') & (m.amount < 100)) & ((m.quantity > 2) & (m.address == 'this')))
+    def approved(c):
+        print ('a0_5 approved ->{0} {1} {2} {3}'.format(c.m.subject, c.m.amount, c.m.quantity, c.m.address))
+
+    @when_start
+    def start(host):
+        host.post('a0_5', {'id': 1, 'sid': 1, 'subject': 'go', 'amount': 50, 'quantity': 10, 'address': 'this'})
+        host.post('a0_5', {'id': 2, 'sid': 1, 'subject': 'go', 'amount': 50, 'quantity': 10, 'address': 'not this'})
+
+with ruleset('a0_6'):
+    @when_all((m.subject == 'go') & (((m.amount < 100) | ((m.amount == 500) & (m.status == 'waived')))))
+    def approved(c):
+        print ('a0_6 approved ->{0} {1}'.format(c.m.subject, c.m.amount))
+
+    @when_start
+    def start(host):
+        host.post('a0_6', {'id': 1, 'sid': 1, 'subject': 'go', 'amount': 50})
+        host.post('a0_6', {'id': 2, 'sid': 1, 'subject': 'go', 'amount': 500, 'status': 'waived'})
+        host.post('a0_6', {'id': 3, 'sid': 1, 'subject': 'go', 'amount': 5000})
 
 
 with ruleset('a1'):
@@ -326,7 +457,10 @@ with ruleset('a4'):
     @when_any(all(m.subject == 'approve', m.amount == 1000), 
               all(m.subject == 'jumbo', m.amount == 10000))
     def action(c):
-        print ('a4 action {0}'.format(c.s.sid))
+        if c.m_0:
+            print ('a4 action {0}, {1}, {2}'.format(c.s.sid, c.m_0.m_0.subject, c.m_0.m_1.amount))
+        else:
+            print ('a4 action {0}, {1}, {2}'.format(c.s.sid, c.m_1.m_0.subject, c.m_1.m_1.amount))
     
     @when_start
     def start(host):
@@ -336,11 +470,39 @@ with ruleset('a4'):
         host.post('a4', {'id': 4, 'sid': 2, 'amount': 10000})
 
 
+with ruleset('a4_1'):
+    @when_any(all(c.first << m.subject == 'approve', 
+                  c.second << m.amount == 1000), 
+              all(c.third << m.subject == 'jumbo', 
+                  c.fourth << m.amount == 10000))
+    def action(c):
+        if c.first:
+            print ('a4_1 action {0}, {1}, {2}'.format(c.s.sid, c.first.subject, c.second.amount))
+        else:
+            print ('a4_1 action {0}, {1}, {2}'.format(c.s.sid, c.third.subject, c.fourth.amount))
+    
+    @when_start
+    def start(host):
+        host.post('a4_1', {'id': 1, 'sid': 1, 'subject': 'approve'})
+        host.post('a4_1', {'id': 2, 'sid': 1, 'amount': 1000})
+        host.post('a4_1', {'id': 3, 'sid': 2, 'subject': 'jumbo'})
+        host.post('a4_1', {'id': 4, 'sid': 2, 'amount': 10000})
+
+
 with ruleset('a5'):
     @when_all(any(m.subject == 'approve', m.subject == 'jumbo'), 
               any(m.amount == 100, m.amount == 10000))
     def action(c):
-        print ('a5 action {0}'.format(c.s.sid))
+        if c.m_0.m_0:
+            if c.m_1.m_0:
+                print ('a5 action {0}, {1}, {2}'.format(c.s.sid, c.m_0.m_0.subject, c.m_1.m_0.amount))
+            else:
+                print ('a5 action {0}, {1}, {2}'.format(c.s.sid, c.m_0.m_0.subject, c.m_1.m_1.amount))
+        else:
+            if c.m_1.m_0:
+                print ('a5 action {0}, {1}, {2}'.format(c.s.sid, c.m_0.m_1.subject, c.m_1.m_0.amount))
+            else:
+                print ('a5 action {0}, {1}, {2}'.format(c.s.sid, c.m_0.m_1.subject, c.m_1.m_1.amount))        
     
     @when_start
     def start(host):
@@ -348,6 +510,31 @@ with ruleset('a5'):
         host.post('a5', {'id': 2, 'sid': 1, 'amount': 100})
         host.post('a5', {'id': 3, 'sid': 2, 'subject': 'jumbo'})
         host.post('a5', {'id': 4, 'sid': 2, 'amount': 10000})
+
+
+with ruleset('a5_1'):
+    @when_all(any(c.first << m.subject == 'approve', 
+                  c.second << m.subject == 'jumbo'), 
+              any(c.third << m.amount == 100, 
+                  c.fourth << m.amount == 10000))
+    def action(c):
+        if c.first:
+            if c.third:
+                print ('a5_1 action {0}, {1}, {2}'.format(c.s.sid, c.first.subject, c.third.amount))
+            else:
+                print ('a5_1 action {0}, {1}, {2}'.format(c.s.sid, c.first.subject, c.fourth.amount))
+        else:
+            if c.m_1.m_0:
+                print ('a5_1 action {0}, {1}, {2}'.format(c.s.sid, c.second.subject, c.third.amount))
+            else:
+                print ('a5_1 action {0}, {1}, {2}'.format(c.s.sid, c.second.subject, c.fourth.amount))        
+    
+    @when_start
+    def start(host):
+        host.post('a5_1', {'id': 1, 'sid': 1, 'subject': 'approve'})
+        host.post('a5_1', {'id': 2, 'sid': 1, 'amount': 100})
+        host.post('a5_1', {'id': 3, 'sid': 2, 'subject': 'jumbo'})
+        host.post('a5_1', {'id': 4, 'sid': 2, 'amount': 10000})
 
 
 with statechart('a6'):
@@ -457,6 +644,50 @@ with ruleset('a12'):
                                 {'id': 2, 'sid': 1, 'subject': 'approve'},
                                 {'id': 3, 'sid': 1, 'subject': 'approve'},
                                 {'id': 4, 'sid': 1, 'subject': 'approve'}])
+
+
+with ruleset('a13'):
+    @when_all(m.invoice.amount >= 100)
+    def approved(c):
+        print ('a13 approved ->{0}'.format(c.m.invoice.amount))
+        
+    @when_start
+    def start(host):
+        host.post('a13', {'id': 1, 'sid': 1, 'invoice': {'amount': 1000}})
+
+
+with ruleset('a14'):
+    @when_all(c.first << m.t == 'bill',
+              c.second << (m.t == 'payment') & (m.invoice.amount == c.first.invoice.amount))
+    def approved(c):
+        print ('a14 approved ->{0}'.format(c.first.invoice.amount))
+        print ('a14 approved ->{0}'.format(c.second.invoice.amount))
+        
+    @when_start
+    def start(host):
+        host.post('a14', {'id': 1, 'sid': 1, 't': 'bill', 'invoice': {'amount': 100}})
+        host.post('a14', {'id': 2, 'sid': 1, 't': 'payment', 'invoice': {'amount': 100}})
+
+
+with ruleset('a15'):
+    @when_all(m.payment.invoice.amount >= 100)
+    def approved(c):
+        print ('a15 approved ->{0}'.format(c.m.payment.invoice.amount))
+        
+    @when_start
+    def start(host):
+        host.post('a15', {'id': 1, 'sid': 1, 'payment': {'invoice': {'amount': 1000}}})
+
+
+with ruleset('a16'):
+    @when_all(m.amount == None)
+    def approved(c):
+        print ('a16 approved ->{0}'.format(c.m.amount))
+        
+    @when_start
+    def start(host):
+        host.post('a16', {'id': 1, 'sid': 1, 'amount': 1000})
+        host.post('a16', {'id': 2, 'sid': 1, 'amount': None})
 
 
 with ruleset('t0'):

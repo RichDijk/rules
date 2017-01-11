@@ -1,5 +1,73 @@
 var r = require('bindings')('rulesjs.node');
 
+console.log('match1');
+
+handle = r.createRuleset('match1', 
+    JSON.stringify({
+        r1: { 
+            all: [{m: {$mt: {name: 'a*(b|cd?)+'}}}]
+        }
+    })
+, 4);
+
+r.bindRuleset(handle, 'localhost', 6379, null);
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 1,
+        sid: 1,
+        name: 'a'
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 2,
+        sid: 1,
+        name: 'cdd'
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 3,
+        sid: 1,
+        name: 'aab'
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 4,
+        sid: 1,
+        name: 'c'
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 5,
+        sid: 1,
+        name: 'acdc'
+    })
+));
+
+result = r.startAction(handle);
+console.log(JSON.parse(result[0]));
+console.log(JSON.parse(result[1]));
+r.completeAction(handle, result[2], result[0]);
+
+result = r.startAction(handle);
+console.log(JSON.parse(result[0]));
+console.log(JSON.parse(result[1]));
+r.completeAction(handle, result[2], result[0]);
+
+result = r.startAction(handle);
+console.log(JSON.parse(result[0]));
+console.log(JSON.parse(result[1]));
+r.completeAction(handle, result[2], result[0]);
+
+
 console.log('proxy');
 
 var pr = r.createProxy(
@@ -509,6 +577,7 @@ handle = r.createRuleset('add1',
 r.bindRuleset(handle, 'localhost', 6379, null);
 
 console.log(r.assertState(handle,
+    1,
     JSON.stringify({
         sid: 1,
         maxAmount: 300
@@ -516,6 +585,7 @@ console.log(r.assertState(handle,
 ));
 
 console.log(r.assertState(handle,
+    2,
     JSON.stringify({
         sid: 2,
         minAmount: 200
@@ -558,6 +628,7 @@ handle = r.createRuleset('add2',
 r.bindRuleset(handle, 'localhost', 6379, null);
 
 console.log(r.assertState(handle,
+    1, 
     JSON.stringify({
         sid: 1,
         first_name: "hello"
@@ -565,6 +636,7 @@ console.log(r.assertState(handle,
 ));
 
 console.log(r.assertState(handle,
+    2,
     JSON.stringify({
         sid: 2,
         last_name: "world"
@@ -1156,6 +1228,7 @@ handle = r.createRuleset('approval3',
 r.bindRuleset(handle, 'localhost', 6379, null);
 
 console.log(r.assertState(handle,
+    1, 
     JSON.stringify({
         sid: 1,
         maxAmount: 100
@@ -1184,6 +1257,7 @@ console.log(JSON.parse(result[1]));
 r.completeAction(handle, result[2], result[0]);
 
 r.assertState(handle,
+    1,
     JSON.stringify({
         sid: 1,
         maxAmount: 10000
@@ -1273,6 +1347,7 @@ handle = r.createRuleset('approval4',
 r.bindRuleset(handle, 'localhost', 6379, null);
 
 console.log(r.assertState(handle,
+    1,
     JSON.stringify({
         sid: 1,
         maxAmount: 300
@@ -1280,6 +1355,7 @@ console.log(r.assertState(handle,
 ));
 
 console.log(r.assertState(handle,
+    2,
     JSON.stringify({
         sid: 2,
         minAmount: 200
@@ -1304,6 +1380,89 @@ console.log(r.assertEvent(handle,
         id: 2,
         sid: 3,
         amount: 100
+    })
+));
+
+result = r.startAction(handle);
+console.log(JSON.parse(result[0]));
+console.log(JSON.parse(result[1]));
+r.completeAction(handle, result[2], result[0]);
+
+r.deleteRuleset(handle);
+
+console.log('approval5');
+
+handle = r.createRuleset('approval5', 
+    JSON.stringify({
+        r1: { 
+            all: [{m: {'invoice.amount': 100}}]
+        }
+    })
+, 4);
+
+r.bindRuleset(handle, 'localhost', 6379, null);
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 1,
+        sid: 1,
+        invoice: {
+            amount: 100
+        }
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 2,
+        sid: 1,
+        amount: 10
+    })
+));
+
+result = r.startAction(handle);
+console.log(JSON.parse(result[0]));
+console.log(JSON.parse(result[1]));
+r.completeAction(handle, result[2], result[0]);
+
+r.deleteRuleset(handle);
+
+console.log('approval6');
+
+handle = r.createRuleset('approval6',  
+    JSON.stringify({
+        r1: {
+            all: [
+                {first: {t: 'bill'}},
+                {second: {$and: [{t: 'payment'}, {'invoice.amount': {first: 'invoice.amount'}}]}},
+            ],
+        }
+    })
+, 4);
+
+r.bindRuleset(handle, 'localhost', 6379, null);
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 1,
+        sid: 1,
+        t: 'bill',
+        invoice: {
+            amount: 100,
+            address: 'Seattle',
+        }
+    })
+));
+
+console.log(r.assertEvent(handle,
+    JSON.stringify({
+        id: 2,
+        sid: 1,
+        t: 'payment',
+        invoice: {
+            amount: 100,
+            address: 'Seattle',
+        }
     })
 ));
 

@@ -25,7 +25,7 @@ class install_lib(_install_lib.install_lib):
 
 rules_lib = ('rules_py', 
              {'sources': ['deps/hiredis/%s.c' % src for src in ('hiredis', 'net', 'sds', 'read')] + 
-             ['src/rules/%s.c' % src for src in ('json', 'net', 'rete', 'state', 'events')]})
+             ['src/rules/%s.c' % src for src in ('json', 'net', 'rete', 'state', 'events', 'regex')]})
 
 rules = Extension('rules',
                   sources = ['src/rulespy/rules.c'],
@@ -37,7 +37,7 @@ with open(path.join(here, 'README.txt'), encoding='utf-8') as f:
 
 setup (
     name = 'durable_rules',
-    version = '0.33.68',
+    version = '0.33.76',
     description = 'for real time analytics (a Python Rules Engine)',
     long_description=long_description,
     url='https://github.com/jruizgit/rules',

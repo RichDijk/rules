@@ -400,7 +400,9 @@ static unsigned int loadTimerCommand(ruleset *tree, binding *rulesBinding) {
 "local res = redis.call(\"zrangebyscore\", timer_key, 0, timestamp, \"limit\", 0, 50)\n"
 "if #res > 0 then\n"
 "  for i = 0, #res, 1 do\n"
-"    redis.call(\"zincrby\", timer_key, 10, res[i])\n"
+"    if res[i] then\n"
+"      redis.call(\"zincrby\", timer_key, 10, tostring(res[i]))\n"
+"    end\n"
 "  end\n"
 "  return res\n"
 "end\n"
@@ -528,11 +530,13 @@ static unsigned int loadDeleteSessionCommand(ruleset *tree, binding *rulesBindin
 "    end\n"
 "end\n"
 "redis.call(\"hdel\", \"%s!s\", sid)\n"
+"redis.call(\"hdel\", \"%s!s!v\", sid)\n"
 "redis.call(\"zrem\", \"%s!a\", sid)\n"
 "redis.call(\"del\", \"%s!a!\" .. sid)\n"
 "redis.call(\"del\", \"%s!e!\" .. sid)\n"
 "redis.call(\"del\", \"%s!f!\" .. sid)\n"
 "redis.call(\"del\", \"%s!v!\" .. sid)\n%s",
+                name,
                 name,
                 name,
                 name, 
@@ -661,17 +665,21 @@ static unsigned int loadAddMessageCommand(ruleset *tree, binding *rulesBinding) 
 "        else\n"
 "            message[ARGV[index]] = false\n"
 "        end\n"
+"    elseif ARGV[index + 2] == \"5\" then\n"
+"        message[ARGV[index]] = cjson.decode(ARGV[index + 1])\n"
+"    elseif ARGV[index + 2] == \"7\" then\n"
+"        message[ARGV[index]] = \"$null\"\n"
 "    end\n"
 "end\n"
 "local mid = message[\"id\"]\n"
 "if redis.call(\"hsetnx\", visited_hashset, message[\"id\"], 1) == 0 then\n"
 "    if assert_fact == 0 then\n"
 "        if not redis.call(\"hget\", events_hashset, mid) then\n"
-"            return false\n"
+"            return %d\n"
 "        end\n"
 "    else\n"
 "        if not redis.call(\"hget\", facts_hashset, mid) then\n"
-"            return false\n"
+"            return %d\n"
 "        end\n"
 "    end\n"
 "end\n"
@@ -692,7 +700,9 @@ static unsigned int loadAddMessageCommand(ruleset *tree, binding *rulesBinding) 
 "end\n",
                 name,
                 name,
-                name, 
+                name,
+                ERR_EVENT_OBSERVED,
+                ERR_EVENT_OBSERVED,
                 addMessageLua)  == -1) {
         return ERR_OUT_OF_MEMORY;
     }
@@ -761,8 +771,9 @@ static unsigned int loadPeekActionCommand(ruleset *tree, binding *rulesBinding) 
                 for (unsigned int iii = 0; iii < currentJoin->expressionsLength; ++iii) {
                     unsigned int expressionOffset = tree->nextPool[currentJoin->expressionsOffset + iii];
                     expression *expr = &tree->expressionPool[expressionOffset];
-                    char *currentAlias = &tree->stringPool[expr->aliasOffset];
                     char *currentKey = &tree->stringPool[expr->nameOffset];
+                    char *currentAlias = &tree->stringPool[expr->aliasOffset];
+                
                     
                     if (iii == 0) {
                         if (expr->not) { 
@@ -947,7 +958,7 @@ static unsigned int loadPeekActionCommand(ruleset *tree, binding *rulesBinding) 
 "        local message = get_message(new_mids[i], messages_key, message_cache)\n"
 "        if message and not reviewers[index](message, frame, index) then\n"
 "            local frames_key = keys[index] .. \"!i!\" .. sid .. \"!\" .. new_mids[i]\n"
-"            redis.call(\"rpush\", frames_key, packed_frame)\n"
+"            redis.call(\"rpush\", frames_key, tostring(packed_frame))\n"
 "            return false\n"
 "        end\n"
 "    end\n"
@@ -1080,6 +1091,71 @@ static unsigned int loadPeekActionCommand(ruleset *tree, binding *rulesBinding) 
 "    end\n"
 "    return sid, name, frame\n"
 "end\n"
+"local fixup_frame = function(frame)\n"
+"    local new_frame = {}\n"
+"    for message_name, message in pairs(frame) do\n"
+"        if message_name == 1 then\n"
+"            return frame\n"
+"        end\n"
+"        local start\n"
+"        local name\n"
+"        local next\n"
+"        local new_message = {}\n"
+"        if message == \"$n\" then\n"
+"            new_message = message\n"
+"        else\n"
+"            for key, value in pairs(message) do\n"
+"                local sub_message = new_message\n"
+"                start = 1\n"
+"                name = key\n"
+"                next = nil\n"
+"                repeat\n"
+"                    next = string.find(key, \"%%.\", start)\n"
+"                    if next then\n"
+"                        name = string.sub(key, start, next - 1)\n"
+"                        if sub_message[name] then\n"
+"                            sub_message = sub_message[name]\n"
+"                        else\n"
+"                            local new_sub_message = {}\n"
+"                            sub_message[name] = new_sub_message\n"
+"                            sub_message = new_sub_message\n"
+"                        end\n"
+"                        start = next + 1\n"
+"                    else\n"
+"                        name = string.sub(key, start)\n"
+"                    end\n"
+"                until not next\n"
+"                if value == \"$null\" then\n"
+"                    sub_message[name] = cjson.null\n"
+"                else\n"
+"                   sub_message[name] = value\n"
+"                end\n"
+"            end\n"
+"        end\n"
+"        local sub_frame = new_frame\n"
+"        name = message_name\n"
+"        next = nil\n"
+"        start = 1\n"
+"        repeat\n"
+"            next = string.find(message_name, \"%%.\", start)\n"
+"            if next then\n"
+"                name = string.sub(message_name, start, next - 1)\n"
+"                if sub_frame[name] then\n"
+"                    sub_frame = sub_frame[name]\n"
+"                else\n"
+"                    local new_sub_frame = {}\n"
+"                    sub_frame[name] = new_sub_frame\n"
+"                    sub_frame = new_sub_frame\n"
+"                end\n"
+"                start = next + 1\n"
+"            else\n"
+"                name = string.sub(message_name, start)\n"
+"            end\n"
+"        until not next\n"
+"        sub_frame[name] = new_message\n"
+"    end\n"
+"    return new_frame\n"
+"end\n"
 "get_context = function(action_key)\n"
 "    if context_directory[action_key] then\n"
 "        return context_directory[action_key]\n"
@@ -1095,11 +1171,12 @@ static unsigned int loadPeekActionCommand(ruleset *tree, binding *rulesBinding) 
 "end\n"
 "if frame then\n"
 "    redis.call(\"zadd\", action_key, tonumber(ARGV[1]), new_sid)\n"
+"    local state_version = redis.call(\"hget\", state_key .. \"!v\", new_sid)\n"
 "    if #ARGV == 2 then\n"
 "        local state = redis.call(\"hget\", state_key, new_sid)\n"
-"        return {new_sid, state, cjson.encode({[action_name] = frame})}\n"
+"        return {new_sid, tonumber(state_version), state, cjson.encode({[action_name] = fixup_frame(frame)})}\n"
 "    else\n"
-"        return {new_sid, cjson.encode({[action_name] = frame})}\n"
+"        return {new_sid, tonumber(state_version), cjson.encode({[action_name] = fixup_frame(frame)})}\n"
 "    end\n"
 "end\n",
                 name,
@@ -1135,7 +1212,7 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
     char *lua = NULL;
     char *oldLua;
     
-    #ifdef _WIN32
+#ifdef _WIN32
     char *actionKey = (char *)_alloca(sizeof(char)*(nameLength + 3));
     sprintf_s(actionKey, nameLength + 3, "%s!a", name);
 #else
@@ -1173,6 +1250,7 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
                 oldLua = lua;
                 if (asprintf(&lua, 
 "%stoggle = false\n"
+"context_directory = {}\n"
 "context = {}\n"
 "reviewers = {}\n"
 "context[\"reviewers\"] = reviewers\n"
@@ -1203,9 +1281,10 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
                 for (unsigned int iii = 0; iii < currentJoin->expressionsLength; ++iii) {
                     unsigned int expressionOffset = tree->nextPool[currentJoin->expressionsOffset + iii];
                     expression *expr = &tree->expressionPool[expressionOffset];
-                    char *currentAlias = &tree->stringPool[expr->aliasOffset];
                     char *currentKey = &tree->stringPool[expr->nameOffset];
+                    char *currentAlias = &tree->stringPool[expr->aliasOffset];
                     char *nextKeyTest;
+
                     if (iii == (currentJoin->expressionsLength - 1)) {
                         nextKeyTest = (char*)calloc(1, sizeof(char));
                         if (!nextKeyTest) {
@@ -1351,6 +1430,7 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
                         char *test = NULL;
                         char *primaryKeyLua = NULL;
                         char *primaryFrameKeyLua = NULL;
+                        
                         unsigned int result = createTest(tree, expr, &test, &primaryKeyLua, &primaryFrameKeyLua);
                         if (result != RULES_OK) {
                             return result;
@@ -1536,6 +1616,9 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "%sif toggle then\n"
 "    context[\"process_key\"] = process_key_with_span\n"
 "    context[\"process_key_count\"] = %d\n"
+"    if not process_message(message) then\n"
+"        return\n"
+"    end\n"
 "end\n",
                                  lua,
                                  currentNode->value.c.span)  == -1) {
@@ -1549,6 +1632,9 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "%sif toggle then\n"
 "    context[\"process_key\"] = process_key_with_cap\n"
 "    context[\"process_key_count\"] = %d\n"
+"    if not process_message(message) then\n"
+"        return\n"
+"    end\n"
 "end\n",
                                  lua,
                                  currentNode->value.c.cap)  == -1) {
@@ -1562,6 +1648,9 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "%sif toggle then\n"
 "    context[\"process_key\"] = process_key_with_window\n"
 "    context[\"process_key_count\"] = %d\n"
+"    if not process_message(message) then\n"
+"        return\n"
+"    end\n"
 "end\n",
                                  lua,
                                  currentNode->value.c.count)  == -1) {
@@ -1756,7 +1845,7 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "                result = result + count\n"
 "                if not is_pure_fact(frame, index) then\n"
 // the mid list might not be cleaned up if the first mid is always valid.
-"                    if (#new_mids %% 10) == 0 then\n"
+"                    if (#new_mids == 1) or ((#new_mids %% 10) == 0) then\n"
 "                        cleanup = true\n"
 "                    end\n"
 "                    break\n"
@@ -1965,6 +2054,41 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "    end\n"
 "    return queue_lock\n"
 "end\n"
+"local process_message = function(message)\n"
+"    for index = 6, 5 + keys_count, 1 do\n"
+"        results = {}\n"
+"        unpacked_results = {}\n"
+"        key = ARGV[index]\n"
+"        context = context_directory[key]\n"
+"        if context then\n"
+"        keys = context[\"keys\"]\n"
+"        reviewers = context[\"reviewers\"]\n"
+"        frame_packers = context[\"frame_packers\"]\n"
+"        frame_unpackers = context[\"frame_unpackers\"]\n"
+"        primary_message_keys = context[\"primary_message_keys\"]\n"
+"        primary_frame_keys = context[\"primary_frame_keys\"]\n"
+"        directory = context[\"directory\"]\n"
+"        results_key = context[\"results_key\"]\n"
+"        inverse_directory = context[\"inverse_directory\"]\n"
+"        expressions_count = context[\"expressions_count\"]\n"
+"        local process_key = context[\"process_key\"]\n"
+"        local process_key_count = context[\"process_key_count\"]\n"
+"        queue_action = process_key(message, process_key_count) or queue_action\n"
+"        if assert_fact == 0 and events_message_cache[tostring(message[\"id\"])] == false then\n"
+"            break\n"
+"        end\n"
+"        end\n"
+"    end\n"
+"    if queue_action then\n"
+"        if not redis.call(\"zscore\", actions_key, sid) then\n"
+"            redis.call(\"zadd\", actions_key , score, sid)\n"
+"        end\n"
+"        if assert_fact == 0 then\n"
+"            return false\n"
+"        end\n"
+"    end\n"
+"    return true\n"
+"end\n"
 "local message = nil\n"
 "if #ARGV > (6 + keys_count) then\n"
 "    message = {}\n"
@@ -1979,6 +2103,10 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "            else\n"
 "                message[ARGV[index]] = false\n"
 "            end\n"
+"        elseif ARGV[index + 2] == \"5\" then\n"
+"            message[ARGV[index]] = cjson.decode(ARGV[index + 1])\n"
+"        elseif ARGV[index + 2] == \"7\" then\n"
+"            message[ARGV[index]] = \"$null\"\n"
 "        end\n"
 "    end\n"
 "    if assert_fact == 1 then\n"
@@ -1988,50 +2116,25 @@ static unsigned int loadEvalMessageCommand(ruleset *tree, binding *rulesBinding)
 "if redis.call(\"hsetnx\", visited_hashset, mid, 1) == 0 then\n"
 "    if assert_fact == 0 then\n"
 "        if message and redis.call(\"hexists\", events_hashset, mid) == 0 then\n"
-"            return false\n"
+"            return %d\n"
 "        end\n"
 "    else\n"
 "        if message and redis.call(\"hexists\", facts_hashset, mid) == 0 then\n"
-"            return false\n"
+"            return %d\n"
 "        end\n"
 "    end\n"
 "end\n"
 "for index = 6, 5 + keys_count, 1 do\n"
 "    input_keys[ARGV[index]] = true\n"
 "end\n"
-"%sfor index = 6, 5 + keys_count, 1 do\n"
-"    results = {}\n"
-"    unpacked_results = {}\n"
-"    key = ARGV[index]\n"
-"    context = context_directory[key]\n"
-"    keys = context[\"keys\"]\n"
-"    reviewers = context[\"reviewers\"]\n"
-"    frame_packers = context[\"frame_packers\"]\n"
-"    frame_unpackers = context[\"frame_unpackers\"]\n"
-"    primary_message_keys = context[\"primary_message_keys\"]\n"
-"    primary_frame_keys = context[\"primary_frame_keys\"]\n"
-"    directory = context[\"directory\"]\n"
-"    results_key = context[\"results_key\"]\n"
-"    inverse_directory = context[\"inverse_directory\"]\n"
-"    expressions_count = context[\"expressions_count\"]\n"
-"    local process_key = context[\"process_key\"]\n"
-"    local process_key_count = context[\"process_key_count\"]\n"
-"    queue_action = process_key(message, process_key_count)\n"
-"    if assert_fact == 0 and events_message_cache[tostring(message[\"id\"])] == false then\n"
-"        break\n"
-"    end\n"
-"end\n"
-"if queue_action then\n"
-"    if not redis.call(\"zscore\", actions_key, sid) then\n"
-"        redis.call(\"zadd\", actions_key , score, sid)\n"
-"    end\n"
-"end\n"
-"return nil\n",
+"%s\n",
                  name,
                  name,
                  name,
                  name,
                  name,
+                 ERR_EVENT_OBSERVED,
+                 ERR_EVENT_OBSERVED,
                  lua)  == -1) {
         return ERR_OUT_OF_MEMORY;
     }
@@ -2190,13 +2293,16 @@ unsigned int bindRuleset(void *handle,
         return ERR_CONNECT_REDIS;
     }
 
+    int result = REDIS_OK;
+    #ifndef _WIN32
     struct timeval tv;
     tv.tv_sec = 10;
     tv.tv_usec = 0;
-    int result = redisSetTimeout(reContext, tv);
+    result = redisSetTimeout(reContext, tv);
     if (result != REDIS_OK) {
         return ERR_REDIS_ERROR;
     }
+    #endif
 
     if (password != NULL) {
         result = redisAppendCommand(reContext, "auth %s", password);
@@ -2336,7 +2442,7 @@ unsigned int formatEvalMessage(void *rulesBinding,
 
     unsigned int offset = 8 + keysLength;
     for (unsigned int i = 0; i < propertiesLength; ++i) {
-        argv[offset + i * 3] = message + allProperties[i].nameOffset;
+        argv[offset + i * 3] = allProperties[i].name;
         argvl[offset + i * 3] = allProperties[i].nameLength;
         argv[offset + i * 3 + 1] = message + allProperties[i].valueOffset;
         if (allProperties[i].type == JSON_STRING) {
@@ -2416,7 +2522,7 @@ unsigned int formatStoreMessage(void *rulesBinding,
 
     unsigned int offset = 6 + keysLength;
     for (unsigned int i = 0; i < propertiesLength; ++i) {
-        argv[offset +  i * 3] = message + allProperties[i].nameOffset;
+        argv[offset +  i * 3] = allProperties[i].name;
         argvl[offset + i * 3] = allProperties[i].nameLength;
         argv[offset + i * 3 + 1] = message + allProperties[i].valueOffset;
         if (allProperties[i].type == JSON_STRING) {
@@ -2459,22 +2565,40 @@ unsigned int formatStoreSession(void *rulesBinding,
                                 char *sid, 
                                 char *state,
                                 unsigned char tryExists, 
-                                char **command) {
+                                char **storeCommand,
+                                char **versionCommand) {
     binding *currentBinding = (binding*)rulesBinding;
 
     int result;
     if (tryExists) {
-        result = redisFormatCommand(command,
+        result = redisFormatCommand(storeCommand,
                                     "hsetnx %s %s %s", 
                                     currentBinding->sessionHashset, 
                                     sid, 
                                     state);
+        if (result == 0) {
+            return ERR_OUT_OF_MEMORY;
+        }
+
+        result = redisFormatCommand(versionCommand,
+                                    "hsetnx %s!v %s 0", 
+                                    currentBinding->sessionHashset, 
+                                    sid);
     } else {
-        result = redisFormatCommand(command,
+        result = redisFormatCommand(storeCommand,
                                     "hset %s %s %s", 
                                     currentBinding->sessionHashset, 
                                     sid, 
                                     state);
+
+        if (result == 0) {
+            return ERR_OUT_OF_MEMORY;
+        }
+
+        result = redisFormatCommand(versionCommand,
+                                    "hincrby %s!v %s 1", 
+                                    currentBinding->sessionHashset, 
+                                    sid);
     }
 
     if (result == 0) {
@@ -2662,6 +2786,10 @@ unsigned int completeNonBlockingBatch(void *rulesBinding,
             if (reply->type == REDIS_REPLY_ERROR) {
                 printf("complete non blocking batch error %d %s\n", i, reply->str);
                 result = ERR_REDIS_ERROR;
+            } else if (reply->type == REDIS_REPLY_INTEGER) {
+                if (reply->integer == ERR_EVENT_OBSERVED && result == RULES_OK) {
+                    result = ERR_EVENT_OBSERVED;
+                }
             }
 
             freeReplyObject(reply);    
@@ -2725,6 +2853,12 @@ unsigned int executeBatchWithReply(void *rulesBinding,
 
                     *lastReply = reply;
                 }
+            } else if (reply->type == REDIS_REPLY_INTEGER) {
+                if (reply->integer == ERR_EVENT_OBSERVED && result == RULES_OK) {
+                    result = ERR_EVENT_OBSERVED;
+                }
+
+                freeReplyObject(reply);
             } else {
                 freeReplyObject(reply);    
             }
@@ -2980,6 +3114,38 @@ unsigned int getSession(void *rulesBinding, char *sid, char **state) {
         return ERR_OUT_OF_MEMORY;
     }
     strcpy(*state, reply->str);
+    freeReplyObject(reply); 
+    return REDIS_OK;
+}
+
+unsigned int getSessionVersion(void *rulesBinding, char *sid, unsigned long *stateVersion) {
+    binding *currentBinding = (binding*)rulesBinding;
+    redisContext *reContext = currentBinding->reContext; 
+    unsigned int result = redisAppendCommand(reContext, 
+                                             "hget %s!v %s", 
+                                             currentBinding->sessionHashset, 
+                                             sid);
+    if (result != REDIS_OK) {
+        return ERR_REDIS_ERROR;
+    }
+
+    redisReply *reply;
+    result = tryGetReply(reContext, &reply);
+    if (result != RULES_OK) {
+        return result;
+    }
+
+    if (reply->type == REDIS_REPLY_ERROR) {
+        freeReplyObject(reply);
+        return ERR_REDIS_ERROR;
+    }
+
+    if (reply->type != REDIS_REPLY_INTEGER) {
+        *stateVersion = 0;
+    } else {
+        *stateVersion = reply->integer;
+    }
+
     freeReplyObject(reply); 
     return REDIS_OK;
 }

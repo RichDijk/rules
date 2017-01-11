@@ -27,7 +27,11 @@ class avalue(object):
         return other
 
     def __getattr__(self, name):
-        self._left = name
+        if self._left:
+            self._left = '{0}.{1}'.format(self._left, name)
+        else:    
+            self._left = name
+
         return self
 
     def _set_right(self, op, other):
@@ -42,7 +46,7 @@ class avalue(object):
         self._sid = id 
         return self
 
-    def define(self):
+    def define(self, parent_name = None):
         if not self._left:
             raise Exception('Property name for {0} not defined'.format(self._name))
 
@@ -121,15 +125,23 @@ class value(object):
         self._op = '$ex'
         return self
 
+    def matches(self, other):
+        self._op = '$mt'
+        self._right = other
+        return self
+
     def __and__(self, other):
         return value(self._type, self, '$and', other, self.alias)
     
     def __or__(self, other):
-        return value(self._type, self, '$or', other, self.alias)
+        return value(self._type, self, '$or', other, self.alias)    
 
     def __getattr__(self, name):
         if self._type:
-            return value(self._type, name)
+            if self._left:
+                return value(self._type, '{0}.{1}'.format(self._left, name))
+            else:
+                return value(self._type, name)
         else:
             return value(self.alias, name)
 
@@ -228,7 +240,7 @@ class rule(object):
 
         return self
 
-    def define(self):
+    def define(self, parent_name = None):
         defined_expression = None
         if not self.multi:
             defined_expression = self.expression.define()
@@ -241,14 +253,20 @@ class rule(object):
                 if current_expression.alias:
                     name = current_expression.alias
                 elif len(self.expression) == 1:
-                    name = 'm'
+                    if parent_name:
+                        name = '{0}.m'.format(parent_name)
+                    else:
+                        name = 'm'
                 else:
-                    name = 'm_{0}'.format(index)
+                    if parent_name:
+                        name = '{0}.m_{1}'.format(parent_name, index)
+                    else:
+                        name = 'm_{0}'.format(index)
 
                 if isinstance(current_expression, all):
-                    new_expression = {'{0}$all'.format(name): current_expression.define()['all']}
+                    new_expression = {'{0}$all'.format(name): current_expression.define(name)['all']}
                 elif isinstance(current_expression, any):
-                    new_expression = {'{0}$any'.format(name): current_expression.define()['any']}
+                    new_expression = {'{0}$any'.format(name): current_expression.define(name)['any']}
                 elif isinstance(current_expression, none):
                     new_expression = {'{0}$not'.format(name): current_expression.define()['none'][0]['m']}
                 else:    

@@ -1,6 +1,248 @@
 var d = require('../libjs/durable');
 var m = d.m, s = d.s, c = d.c; timeout = d.timeout;
 
+d.ruleset('match1', {
+        whenAll: [ m.subject.mt('a+(bc|de?)*') ],
+        run: function(c) {
+            console.log('match 1 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match1', {id: 1, sid: 1, subject: 'abcbc'});
+        host.post('match1', {id: 2, sid: 1, subject: 'addd'});
+        host.post('match1', {id: 3, sid: 1, subject: 'ddd'});
+        host.post('match1', {id: 4, sid: 1, subject: 'adee'});
+    }
+);
+
+d.ruleset('match2', {
+        whenAll: [ m.subject.mt('[0-9]+-[a-z]+') ],
+        run: function(c) {
+            console.log('match 2 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match2', {id: 1, sid: 1, subject: '0-a'});
+        host.post('match2', {id: 2, sid: 1, subject: '43-bcd'});
+        host.post('match2', {id: 3, sid: 1, subject: 'a-3'});
+        host.post('match2', {id: 4, sid: 1, subject: '0a'});
+    }
+);
+
+d.ruleset('match3', {
+        whenAll: [ m.subject.mt('[adfzx-]+[5678]+') ],
+        run: function(c) {
+            console.log('match 3 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match3', {id: 1, sid: 1, subject: 'ad-567'});
+        host.post('match3', {id: 2, sid: 1, subject: 'ac-78'});
+        host.post('match3', {id: 3, sid: 1, subject: 'zx12'});
+        host.post('match3', {id: 4, sid: 1, subject: 'xxxx-8888'});
+    }
+);
+
+d.ruleset('match4', {
+        whenAll: [ m.subject.mt('[z-a]+-[9-0]+') ],
+        run: function(c) {
+            console.log('match 4 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match4', {id: 1, sid: 1, subject: 'ed-56'});
+        host.post('match4', {id: 2, sid: 1, subject: 'ac-ac'});
+        host.post('match4', {id: 3, sid: 1, subject: 'az-90'});
+        host.post('match4', {id: 4, sid: 1, subject: 'AZ-90'});
+    }
+);
+
+d.ruleset('match5', {
+        whenAll: [ m.subject.mt('.+b') ],
+        run: function(c) {
+            console.log('match 5 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match5', {id: 1, sid: 1, subject: 'ab'});
+        host.post('match5', {id: 2, sid: 1, subject: 'adfb0'});
+        host.post('match5', {id: 3, sid: 1, subject: 'abbbcd'});
+        host.post('match5', {id: 4, sid: 1, subject: 'xyz.b'});
+    }
+);
+
+d.ruleset('match6', {
+        whenAll: [ m.subject.mt('[a-z]{3}') ],
+        run: function(c) {
+            console.log('match 6 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match6', {id: 1, sid: 1, subject: 'ab'});
+        host.post('match6', {id: 2, sid: 1, subject: 'bbb'});
+        host.post('match6', {id: 3, sid: 1, subject: 'azc'});
+        host.post('match6', {id: 4, sid: 1, subject: 'abbbcd'});
+    }
+);
+
+d.ruleset('match7', {
+        whenAll: [ m.subject.mt('[a-z]{2,4}') ],
+        run: function(c) {
+            console.log('match 7 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match7', {id: 1, sid: 1, subject: 'ar'});
+        host.post('match7', {id: 2, sid: 1, subject: 'bxbc'});
+        host.post('match7', {id: 3, sid: 1, subject: 'a'});
+        host.post('match7', {id: 4, sid: 1, subject: 'abbbc'});
+    }
+);
+
+d.ruleset('match8', {
+        whenAll: [ m.subject.mt('(a|bc){2,}') ],
+        run: function(c) {
+            console.log('match 8 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match8', {id: 1, sid: 1, subject: 'aa'});
+        host.post('match8', {id: 2, sid: 1, subject: 'abcbc'});
+        host.post('match8', {id: 3, sid: 1, subject: 'bc'});
+        host.post('match8', {id: 4, sid: 1, subject: 'a'});
+    }
+);
+
+
+d.ruleset('match9', {
+        whenAll: [ m.subject.mt('a{1,2}') ],
+        run: function(c) {
+            console.log('match 9 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match9', {id: 1, sid: 1, subject: 'a'});
+        host.post('match9', {id: 2, sid: 1, subject: 'b'});
+        host.post('match9', {id: 3, sid: 1, subject: 'aa'});
+        host.post('match9', {id: 4, sid: 1, subject: 'aaa'});
+    }
+);
+
+d.ruleset('match10', {
+        whenAll: [ m.subject.mt('cba{1,}') ],
+        run: function(c) {
+            console.log('match 10 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match10', {id: 1, sid: 1, subject: 'cba'});
+        host.post('match10', {id: 2, sid: 1, subject: 'b'});
+        host.post('match10', {id: 3, sid: 1, subject: 'cb'});
+        host.post('match10', {id: 4, sid: 1, subject: 'cbaaa'});
+    }
+);
+
+d.ruleset('match11', {
+        whenAll: [ m.subject.mt('cba{0,}') ],
+        run: function(c) {
+            console.log('match 11 ' + c.m.subject);
+        }
+    },
+    function (host) {
+        host.post('match11', {id: 1, sid: 1, subject: 'cb'});
+        host.post('match11', {id: 2, sid: 1, subject: 'b'});
+        host.post('match11', {id: 3, sid: 1, subject: 'cbab'});
+        host.post('match11', {id: 4, sid: 1, subject: 'cbaaa'});
+    }
+);
+
+d.ruleset('match12', {
+        whenAll: [ m.user.mt('[a-z0-9_-]{3,16}') ],
+        run: function(c) {
+            console.log('match 12 user ' + c.m.user);
+        }
+    },
+    function (host) {
+        host.post('match12', {id: 1, sid: 1, user: 'git-9'});
+        host.post('match12', {id: 2, sid: 1, user: 'git_9'});
+        host.post('match12', {id: 3, sid: 1, user: 'GIT-9'});
+        host.post('match12', {id: 4, sid: 1, user: '01234567890123456789'});
+        host.post('match12', {id: 5, sid: 1, user: 'gi'});
+    }
+);
+
+d.ruleset('match13', {
+        whenAll: [ m.number.mt('#?([a-f0-9]{6}|[a-f0-9]{3})') ],
+        run: function(c) {
+            console.log('match 13 hex ' + c.m.number);
+        }
+    },
+    function (host) {
+        host.post('match13', {id: 1, sid: 1, number: 'fff'});
+        host.post('match13', {id: 2, sid: 1, number: '#45'});
+        host.post('match13', {id: 3, sid: 1, number: 'abcdex'});
+        host.post('match13', {id: 4, sid: 1, number: '#54ba45'});
+        host.post('match13', {id: 5, sid: 1, number: '#9999'});
+    }
+);
+
+d.ruleset('match14', {
+        whenAll: [ m.alias.mt('([a-z0-9_.-]+)@([0-9a-z.-]+)\\.([a-z]{2,6})') ],
+        run: function(c) {
+            console.log('match 14 email ' + c.m.alias);
+        }
+    },
+    function (host) {
+        host.post('match14', {id: 1, sid: 1, alias: 'john_59@mail.mx'});
+        host.post('match14', {id: 2, sid: 1, alias: 'j#5@mail.com'});
+        host.post('match14', {id: 3, sid: 1, alias: 'abcd.abcd@mail.mx.com'});
+        host.post('match14', {id: 4, sid: 1, alias: 'dd@dd.'});
+        host.post('match14', {id: 5, sid: 1, alias: 'dd@dd.c'});
+    }
+);
+
+d.ruleset('match15', {
+        whenAll: [ m.url.mt('(https?://)?([0-9a-z.-]+)\\.[a-z]{2,6}(/[A-z0-9_.-]+/?)*') ],
+        run: function(c) {
+            console.log('match 15 url ' + c.m.url);
+        }
+    },
+    function (host) {
+        host.post('match15', {id: 1, sid: 1, url: 'https://github.com'});
+        host.post('match15', {id: 2, sid: 1, url: 'http://github.com/jruizgit/rul!es'});
+        host.post('match15', {id: 3, sid: 1, url: 'https://github.com/jruizgit/rules/blob/master/docs/rb/reference.md'});
+        host.post('match15', {id: 4, sid: 1, url: '//rules'});
+        host.post('match15', {id: 5, sid: 1, url: 'https://github.c/jruizgit/rules'});
+    }
+);
+
+d.ruleset('match16', {
+        whenAll: [ m.ip.mt('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)') ],
+        run: function(c) {
+            console.log('match 16 ip ' + c.m.ip);
+        }
+    },
+    function (host) {
+        host.post('match16', {id: 1, sid: 1, ip: '73.60.124.136'});
+        host.post('match16', {id: 2, sid: 1, ip: '256.60.124.136'});
+        host.post('match16', {id: 3, sid: 1, ip: '250.60.124.256'});
+        host.post('match16', {id: 4, sid: 1, ip: '73.60.124'});
+        host.post('match16', {id: 5, sid: 1, ip: '127.0.0.1'});
+    }
+);
+
+d.ruleset('fraud1_0', {
+        whenAll: [ m.amount.eq(null) ],
+        run: function(c) {
+            console.log('fraud1_0 detected ' + c.m.amount);
+        }
+    },
+    function (host) {
+        host.post('fraud1_0', {id: 1, sid: 1, amount: 200});
+        host.post('fraud1_0', {id: 2, sid: 1, amount: null});
+    }
+);
+
 d.ruleset('fraud1_1', {
         whenAll: [
             c.first = m.amount.gt(100),
@@ -310,14 +552,37 @@ with (d.statechart('fraud7')) {
     });
 }
 
-with (d.ruleset('a0')) {
-    whenAll(or(m.amount.lt(100), m.subject.eq('approve'), m.subject.eq('ok')), function (c) {
-        console.log('a0 approved from ' + c.s.sid);
+with (d.ruleset('a0_0')) {
+    whenAll(or(m.subject.eq('go'), m.subject.eq('approve'), m.subject.eq('ok')), function (c) {
+        console.log('a0_0 approved ' + c.m.subject);
     });
     whenStart(function (host) {
-        host.post('a0', {id: 1, sid: 1, amount: 10});
-        host.post('a0', {id: 2, sid: 2, subject: 'approve'});
-        host.post('a0', {id: 3, sid: 3, subject: 'ok'});
+        host.post('a0_0', {id: 1, sid: 1, subject: 'go'});
+        host.post('a0_0', {id: 2, sid: 1, subject: 'approve'});
+        host.post('a0_0', {id: 3, sid: 1, subject: 'ok'});
+        host.post('a0_0', {id: 4, sid: 1, subject: 'not ok'});
+    });
+}
+
+with (d.ruleset('a0_1')) {
+    whenAll(and(m.subject.eq('go'), or(m.amount.lt(100), m.amount.gt(1000))), function (c) {
+        console.log('a0_1 approved  ' + c.m.subject + ' ' + c.m.amount);
+    });
+    whenStart(function (host) {
+        host.post('a0_1', {id: 1, sid: 1, subject: 'go', amount: 50});
+        host.post('a0_1', {id: 2, sid: 1, subject: 'go', amount: 500});
+        host.post('a0_1', {id: 3, sid: 1, subject: 'go', amount: 5000});
+    });
+}
+
+with (d.ruleset('a0_2')) {
+    whenAll(and(m.subject.eq('go'), or(m.amount.lt(100), and(m.amount.eq(500), m.status.eq('waived')))), function (c) {
+        console.log('a0_2 approved  ' + c.m.subject + ' ' + c.m.amount);
+    });
+    whenStart(function (host) {
+        host.post('a0_2', {id: 1, sid: 1, subject: 'go', amount: 50});
+        host.post('a0_2', {id: 2, sid: 1, subject: 'go', amount: 500, status: 'waived'});
+        host.post('a0_2', {id: 3, sid: 1, subject: 'go', amount: 5000});
     });
 }
 
@@ -422,7 +687,11 @@ with (d.flowchart('a3')) {
 with (d.ruleset('a4')) {
     whenAny(all(m.subject.eq('approve'), m.amount.eq(1000)), 
             all(m.subject.eq('jumbo'), m.amount.eq(10000)), function (c) {
-        console.log('a4 action from: ' + c.s.sid);
+        if (c.m_0) {
+            console.log('a4 action from: ' + c.s.sid + ' ' + c.m_0.m_0.subject + ' ' + c.m_0.m_1.amount);     
+        } else {
+            console.log('a4 action from: ' + c.s.sid + ' ' + c.m_1.m_0.subject + ' ' + c.m_1.m_1.amount);        
+        }
     });
     whenStart(function (host) {
         host.post('a4', {id: 1, sid: 1, subject: 'approve'});
@@ -432,16 +701,74 @@ with (d.ruleset('a4')) {
     });
 }
 
+with (d.ruleset('a4_1')) {
+    whenAny(all(c.first = m.subject.eq('approve'), 
+                c.second = m.amount.eq(1000)), 
+            all(c.third = m.subject.eq('jumbo'), 
+                c.fourth = m.amount.eq(10000)), function (c) {
+        if (c.first) {
+            console.log('a4_1 action from: ' + c.s.sid + ' ' + c.first.subject + ' ' + c.second.amount);     
+        } else {
+            console.log('a4_1 action from: ' + c.s.sid + ' ' + c.third.subject + ' ' + c.fourth.amount);        
+        }
+    });
+    whenStart(function (host) {
+        host.post('a4_1', {id: 1, sid: 1, subject: 'approve'});
+        host.post('a4_1', {id: 2, sid: 1, amount: 1000});
+        host.post('a4_1', {id: 3, sid: 2, subject: 'jumbo'});
+        host.post('a4_1', {id: 4, sid: 2, amount: 10000});
+    });
+}
+
 with (d.ruleset('a5')) {
     whenAll(any(m.subject.eq('approve'), m.subject.eq('jumbo')), 
             any(m.amount.eq(100), m.amount.eq(10000)), function (c) {
-        console.log('a5 action from: ' + c.s.sid);
+        if (c.m_0.m_0) {
+            if (c.m_1.m_0) {
+                console.log('a5 action from: ' + c.s.sid + ' ' + c.m_0.m_0.subject + ' ' + c.m_1.m_0.amount);        
+            } else {
+                console.log('a5 action from: ' + c.s.sid + ' ' + c.m_0.m_0.subject + ' ' + c.m_1.m_1.amount);
+            }
+        } else {
+            if (c.m_1.m_0) {
+                console.log('a5 action from: ' + c.s.sid + ' ' + c.m_0.m_1.subject + ' ' + c.m_1.m_0.amount);        
+            } else {
+                console.log('a5 action from: ' + c.s.sid + ' ' + c.m_0.m_1.subject + ' ' + c.m_1.m_1.amount);
+            }
+        }
     });
     whenStart(function (host) {
         host.post('a5', {id: 1, sid: 1, subject: 'approve'});
         host.post('a5', {id: 2, sid: 1, amount: 100});
         host.post('a5', {id: 3, sid: 2, subject: 'jumbo'});
         host.post('a5', {id: 4, sid: 2, amount: 10000});
+    });
+}
+
+with (d.ruleset('a5_1')) {
+    whenAll(any(c.first = m.subject.eq('approve'), 
+                c.second = m.subject.eq('jumbo')), 
+            any(c.third = m.amount.eq(100), 
+                c.fourth = m.amount.eq(10000)), function (c) {
+        if (c.first) {
+            if (c.third) {
+                console.log('a5_1 action from: ' + c.s.sid + ' ' + c.first.subject + ' ' + c.third.amount);        
+            } else {
+                console.log('a5_1 action from: ' + c.s.sid + ' ' + c.first.subject + ' ' + c.fourth.amount);
+            }
+        } else {
+            if (c.third) {
+                console.log('a5_1 action from: ' + c.s.sid + ' ' + c.second.subject + ' ' + c.third.amount);        
+            } else {
+                console.log('a5_1 action from: ' + c.s.sid + ' ' + c.second.subject + ' ' + c.fourth.amount);
+            }
+        }
+    });
+    whenStart(function (host) {
+        host.post('a5_1', {id: 1, sid: 1, subject: 'approve'});
+        host.post('a5_1', {id: 2, sid: 1, amount: 100});
+        host.post('a5_1', {id: 3, sid: 2, subject: 'jumbo'});
+        host.post('a5_1', {id: 4, sid: 2, amount: 10000});
     });
 }
 
@@ -482,7 +809,7 @@ with (d.ruleset('a7')) {
 }
 
 with (d.ruleset('a8')) {
-    whenAll(m.amount.lt(c.s.maxAmount).and(m.amount.gt(c.s.id('global').minAmount)), function (c) {
+    whenAll(m.amount.lt(c.s.maxAmount).and(m.amount.gt(c.s.refId('global').minAmount)), function (c) {
         console.log('a8 approved ' +  c.m.amount);
     });
     whenStart(function (host) {
@@ -494,7 +821,7 @@ with (d.ruleset('a8')) {
 }
 
 with (d.ruleset('a9')) {
-    whenAll(m.amount.gt(c.s.maxAmount.add(c.s.id('global').minAmount)), function (c) {
+    whenAll(m.amount.gt(c.s.maxAmount.add(c.s.refId('global').minAmount)), function (c) {
         console.log('a9 approved ' +  c.m.amount);
     });
     whenStart(function (host) {
@@ -542,6 +869,38 @@ with (d.ruleset('a12')) {
         host.postBatch('a12', {id: 2, sid: 1, subject: 'please'},
                               {id: 3, sid: 1, subject: 'please'},
                               {id: 4, sid: 1, subject: 'please'});
+    }); 
+}
+
+with (d.ruleset('a13')) {
+    whenAll(m.invoice.amount.gte(100), function (c) {
+        console.log('a13 approved ->' + c.m.invoice.amount);
+    });
+    whenStart(function (host) {
+        host.post('a13', {id: 1, sid: 1, invoice: {amount: 100}});           
+    }); 
+}
+
+with (d.ruleset('a14')) {
+    whenAll(c.first = m.t.eq('bill'),
+            c.second = and(m.t.eq('payment'), m.invoice.amount.eq(c.first.invoice.amount)), 
+        function(c) {
+            console.log('a14 approved ->' + c.first.invoice.amount);
+            console.log('a14 approved ->' + c.second.invoice.amount);
+        }
+    );
+    whenStart(function (host) {
+        host.post('a14', {id: 1, sid: 1, t: 'bill', invoice: {amount: 100}});  
+        host.post('a14', {id: 2, sid: 1, t: 'payment', invoice: {amount: 100}});  
+    });
+}
+
+with (d.ruleset('a15')) {
+    whenAll(m.payment.invoice.amount.gte(100), function (c) {
+        console.log('a15 approved ->' + c.m.payment.invoice.amount);
+    });
+    whenStart(function (host) {
+        host.post('a15', {id: 1, sid: 1, payment: {invoice: {amount: 100}}});           
     }); 
 }
 
